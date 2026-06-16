@@ -236,19 +236,295 @@ if page == "Dashboard":
 
 elif page == "Inventory":
     st.title("Inventory Manager")
-    with st.form("inventory"):
-        c1,c2,c3 = st.columns(3)
-        item_name = c1.text_input("Item Name"); category = c2.selectbox("Category", ["Ingredient","Fragrance","Colorant","Packaging","Shipping","Equipment"]); subcategory = c3.text_input("Subcategory")
-        c4,c5,c6 = st.columns(3)
-        supplier = c4.text_input("Supplier"); qty = c5.number_input("Quantity Purchased", min_value=0.0, step=.01); unit = c6.selectbox("Unit", ["oz","lb","g","kg","fl oz","each"])
-        c7,c8,c9 = st.columns(3)
-        total = c7.number_input("Total Cost Paid", min_value=0.0, step=.01); current = c8.number_input("Current Quantity", min_value=0.0, step=.01); reorder = c9.number_input("Reorder Point", min_value=0.0, step=.01)
-        label = st.text_input("Label Display / INCI Name"); notes = st.text_area("Notes")
-        if st.form_submit_button("Save Item") and item_name:
-            insert("inventory", {"item_name":item_name,"category":category,"subcategory":subcategory,"supplier":supplier,"quantity_purchased":qty,"unit":unit,"total_cost":total,"current_quantity":current,"reorder_point":reorder,"label_display_name":label,"notes":notes}); st.rerun()
-    inv = df("inventory")
-    if not inv.empty:
-        inv["cost_per_unit"] = inv.apply(cpu, axis=1); st.dataframe(inv.sort_values(["category","item_name"]), use_container_width=True)
+    st.caption("Search, view, add, edit, delete, and report on your raw materials, packaging, shipping supplies, and equipment.")
+
+    df = table_df("inventory")
+
+    if not df.empty:
+        for col in ["item_name", "category", "subcategory", "supplier", "label_display_name", "notes"]:
+            if col not in df.columns:
+                df[col] = ""
+        for col in ["quantity_purchased", "total_cost", "current_quantity", "reorder_point"]:
+            if col not in df.columns:
+                df[col] = 0
+
+        df["cost_per_unit"] = df.apply(cost_per_unit, axis=1)
+        df["inventory_value"] = df["current_quantity"].astype(float) * df["cost_per_unit"].astype(float)
+        df["stock_status"] = df.apply(
+            lambda r: "LOW" if float(r.get("current_quantity") or 0) <= float(r.get("reorder_point") or 0) else "OK",
+            axis=1
+        )
+
+    tab_list, tab_add, tab_manage, tab_reports = st.tabs([
+        "Inventory List",
+        "Add New",
+        "Edit / Delete",
+        "Reports"
+    ])
+
+    with tab_list:
+        st.subheader("Current Inventory")
+
+        c_search, c_filter = st.columns([2, 1])
+        search_term = c_search.text_input("Search inventory", placeholder="Search by item, supplier, category, INCI name, or notes...", key="inventory_search")
+        category_filter = c_filter.selectbox(
+            "Filter by category",
+            ["All", "Ingredient", "Fragrance", "Colorant", "Packaging", "Shipping", "Equipment"],
+            key="inventory_category_filter"
+        )
+
+        display_df = df.copy()
+
+        if not display_df.empty:
+            if search_term:
+                term = search_term.lower()
+                display_df = display_df[
+                    display_df["item_name"].fillna("").str.lower().str.contains(term) |
+                    display_df["category"].fillna("").str.lower().str.contains(term) |
+                    display_df["subcategory"].fillna("").str.lower().str.contains(term) |
+                    display_df["supplier"].fillna("").str.lower().str.contains(term) |
+                    display_df["label_display_name"].fillna("").str.lower().str.contains(term) |
+                    display_df["notes"].fillna("").str.lower().str.contains(term)
+                ]
+
+            if category_filter != "All":
+                display_df = display_df[display_df["category"] == category_filter]
+
+        if display_df.empty:
+            st.info("No inventory items found.")
+        else:
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Total Items", len(display_df))
+            c2.metric("Inventory Value", f"${display_df['inventory_value'].sum():.2f}")
+            c3.metric("Low Stock Items", int((display_df["stock_status"] == "LOW").sum()))
+            c4.metric("Categories", display_df["category"].nunique())
+
+            show_cols = [
+                "id", "item_name", "category", "subcategory", "supplier",
+                "current_quantity", "unit", "reorder_point", "stock_status",
+                "cost_per_unit", "inventory_value"
+            ]
+            st.dataframe(
+                display_df[show_cols].sort_values(["stock_status", "category", "item_name"]),
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.info("To edit or delete an item, go to the Edit / Delete tab and select it from the dropdown.")
+
+    with tab_add:
+        st.subheader("Add New Inventory Item")
+
+        with st.form("add_inventory", clear_on_submit=False):
+            c1, c2, c3 = st.columns(3)
+            item_name = c1.text_input("Item Name", key="add_item_name")
+            category = c2.selectbox("Category", ["Ingredient", "Fragrance", "Colorant", "Packaging", "Shipping", "Equipment"], key="add_category")
+            subcategory = c3.text_input("Subcategory", key="add_subcategory")
+
+            c4, c5, c6 = st.columns(3)
+            supplier = c4.text_input("Supplier", key="add_supplier")
+            quantity = c5.number_input("Quantity Purchased", min_value=0.0, step=0.01, key="add_quantity")
+            unit = c6.selectbox("Unit", ["oz", "lb", "g", "kg", "fl oz", "each"], key="add_unit")
+
+            c7, c8, c9 = st.columns(3)
+            total_cost = c7.number_input("Total Cost Paid", min_value=0.0, step=0.01, key="add_total_cost")
+            current_quantity = c8.number_input("Current Quantity Left", min_value=0.0, step=0.01, key="add_current_quantity")
+            reorder_point = c9.number_input("Reorder Point", min_value=0.0, step=0.01, key="add_reorder_point")
+
+            label_display_name = st.text_input("Label Display / INCI Name", key="add_label_display_name")
+            notes = st.text_area("Notes", key="add_notes")
+            submitted = st.form_submit_button("Save New Item")
+
+            if submitted:
+                if not item_name.strip():
+                    st.error("Item Name is required.")
+                else:
+                    insert_row("inventory", {
+                        "item_name": item_name.strip(),
+                        "category": category,
+                        "subcategory": subcategory.strip(),
+                        "supplier": supplier.strip(),
+                        "quantity_purchased": quantity,
+                        "unit": unit,
+                        "total_cost": total_cost,
+                        "current_quantity": current_quantity,
+                        "reorder_point": reorder_point,
+                        "label_display_name": label_display_name.strip(),
+                        "notes": notes.strip()
+                    })
+                    st.success(f"Added {item_name}")
+                    st.rerun()
+
+    with tab_manage:
+        st.subheader("Edit / Delete Inventory Item")
+
+        if df.empty:
+            st.info("Add inventory first, then you can edit it here.")
+        else:
+            df_edit = df.sort_values("item_name").copy()
+            item_options = df_edit["id"].astype(str) + " - " + df_edit["item_name"].fillna("Unnamed Item")
+            selected_item = st.selectbox("Select an inventory item", item_options, key="manage_selected_inventory")
+
+            selected_id = int(selected_item.split(" - ")[0])
+            selected = df_edit[df_edit["id"] == selected_id].iloc[0]
+
+            cost_unit = cost_per_unit(selected)
+            inv_value = float(selected.get("current_quantity") or 0) * cost_unit
+            status = "LOW STOCK" if float(selected.get("current_quantity") or 0) <= float(selected.get("reorder_point") or 0) else "OK"
+
+            st.markdown(f"### {selected.get('item_name')}")
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Status", status)
+            m2.metric("Cost Per Unit", f"${cost_unit:.4f}")
+            m3.metric("Quantity Left", f"{float(selected.get('current_quantity') or 0):.2f} {selected.get('unit') or ''}")
+            m4.metric("Inventory Value", f"${inv_value:.2f}")
+
+            edit_tab, adjust_tab, delete_tab = st.tabs(["Edit Details", "Quick Quantity Update", "Delete"])
+
+            with edit_tab:
+                with st.form("edit_inventory"):
+                    c1, c2, c3 = st.columns(3)
+                    edit_item_name = c1.text_input("Item Name", value=str(selected.get("item_name") or ""))
+                    categories = ["Ingredient", "Fragrance", "Colorant", "Packaging", "Shipping", "Equipment"]
+                    units = ["oz", "lb", "g", "kg", "fl oz", "each"]
+
+                    edit_category = c2.selectbox(
+                        "Category",
+                        categories,
+                        index=categories.index(selected.get("category")) if selected.get("category") in categories else 0
+                    )
+                    edit_subcategory = c3.text_input("Subcategory", value=str(selected.get("subcategory") or ""))
+
+                    c4, c5, c6 = st.columns(3)
+                    edit_supplier = c4.text_input("Supplier", value=str(selected.get("supplier") or ""))
+                    edit_quantity = c5.number_input("Original Quantity Purchased", min_value=0.0, step=0.01, value=float(selected.get("quantity_purchased") or 0))
+                    edit_unit = c6.selectbox(
+                        "Unit",
+                        units,
+                        index=units.index(selected.get("unit")) if selected.get("unit") in units else 0
+                    )
+
+                    c7, c8, c9 = st.columns(3)
+                    edit_total_cost = c7.number_input("Total Cost Paid", min_value=0.0, step=0.01, value=float(selected.get("total_cost") or 0))
+                    edit_current_quantity = c8.number_input("Current Quantity Left", min_value=0.0, step=0.01, value=float(selected.get("current_quantity") or 0))
+                    edit_reorder_point = c9.number_input("Reorder Point", min_value=0.0, step=0.01, value=float(selected.get("reorder_point") or 0))
+
+                    edit_label = st.text_input("Label Display / INCI Name", value=str(selected.get("label_display_name") or ""))
+                    edit_notes = st.text_area("Notes", value=str(selected.get("notes") or ""))
+
+                    save_edit = st.form_submit_button("Save Changes")
+
+                    if save_edit:
+                        update_row("inventory", selected_id, {
+                            "item_name": edit_item_name.strip(),
+                            "category": edit_category,
+                            "subcategory": edit_subcategory.strip(),
+                            "supplier": edit_supplier.strip(),
+                            "quantity_purchased": edit_quantity,
+                            "unit": edit_unit,
+                            "total_cost": edit_total_cost,
+                            "current_quantity": edit_current_quantity,
+                            "reorder_point": edit_reorder_point,
+                            "label_display_name": edit_label.strip(),
+                            "notes": edit_notes.strip()
+                        })
+                        st.success(f"Updated {edit_item_name}")
+                        st.rerun()
+
+            with adjust_tab:
+                st.write("Use this when you only need to update how much you have left.")
+                with st.form("quick_quantity_update"):
+                    new_qty = st.number_input(
+                        "New Current Quantity Left",
+                        min_value=0.0,
+                        step=0.01,
+                        value=float(selected.get("current_quantity") or 0)
+                    )
+                    quick_note = st.text_area("Optional note about this adjustment", placeholder="Example: Used 12 oz in batch, found extra bottle, corrected count...")
+                    quick_save = st.form_submit_button("Update Quantity Left")
+
+                    if quick_save:
+                        existing_notes = str(selected.get("notes") or "")
+                        if quick_note.strip():
+                            updated_notes = existing_notes + f"\nQuantity adjustment: {quick_note.strip()}"
+                        else:
+                            updated_notes = existing_notes
+                        update_row("inventory", selected_id, {
+                            "current_quantity": new_qty,
+                            "notes": updated_notes
+                        })
+                        st.success("Quantity updated.")
+                        st.rerun()
+
+            with delete_tab:
+                st.error("Delete is permanent. Only delete test items or inventory you are sure you do not need.")
+                confirm_text = st.text_input("Type DELETE to confirm")
+                if confirm_text == "DELETE":
+                    if st.button("Permanently Delete This Inventory Item"):
+                        try:
+                            delete_row("inventory", selected_id)
+                            st.success("Inventory item deleted.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Could not delete this item. It may be used in a recipe. Error: {e}")
+
+    with tab_reports:
+        st.subheader("Inventory Reports")
+
+        if df.empty:
+            st.info("No inventory available for reports yet.")
+        else:
+            report_type = st.selectbox(
+                "Choose report",
+                [
+                    "Low Stock / Reorder Needed",
+                    "Lowest Stock First",
+                    "Highest Stock First",
+                    "Highest Inventory Value",
+                    "Lowest Inventory Value",
+                    "By Category Summary",
+                    "By Supplier Summary"
+                ]
+            )
+
+            if report_type == "Low Stock / Reorder Needed":
+                report = df[df["current_quantity"].astype(float) <= df["reorder_point"].astype(float)].copy()
+                st.write("Items where current quantity is at or below reorder point.")
+                if report.empty:
+                    st.success("Nothing needs reordering right now.")
+                else:
+                    st.dataframe(report[["item_name", "category", "supplier", "current_quantity", "unit", "reorder_point"]], use_container_width=True, hide_index=True)
+
+            elif report_type == "Lowest Stock First":
+                report = df.sort_values("current_quantity", ascending=True)
+                st.dataframe(report[["item_name", "category", "supplier", "current_quantity", "unit", "reorder_point"]], use_container_width=True, hide_index=True)
+
+            elif report_type == "Highest Stock First":
+                report = df.sort_values("current_quantity", ascending=False)
+                st.dataframe(report[["item_name", "category", "supplier", "current_quantity", "unit", "reorder_point"]], use_container_width=True, hide_index=True)
+
+            elif report_type == "Highest Inventory Value":
+                report = df.sort_values("inventory_value", ascending=False)
+                st.dataframe(report[["item_name", "category", "supplier", "current_quantity", "unit", "cost_per_unit", "inventory_value"]], use_container_width=True, hide_index=True)
+
+            elif report_type == "Lowest Inventory Value":
+                report = df.sort_values("inventory_value", ascending=True)
+                st.dataframe(report[["item_name", "category", "supplier", "current_quantity", "unit", "cost_per_unit", "inventory_value"]], use_container_width=True, hide_index=True)
+
+            elif report_type == "By Category Summary":
+                report = df.groupby("category", dropna=False).agg(
+                    item_count=("id", "count"),
+                    total_inventory_value=("inventory_value", "sum"),
+                    low_stock_items=("stock_status", lambda x: int((x == "LOW").sum()))
+                ).reset_index()
+                st.dataframe(report, use_container_width=True, hide_index=True)
+
+            elif report_type == "By Supplier Summary":
+                report = df.groupby("supplier", dropna=False).agg(
+                    item_count=("id", "count"),
+                    total_inventory_value=("inventory_value", "sum")
+                ).reset_index().sort_values("total_inventory_value", ascending=False)
+                st.dataframe(report, use_container_width=True, hide_index=True)
 
 elif page == "Fragrance Library":
     st.title("Fragrance Library")
