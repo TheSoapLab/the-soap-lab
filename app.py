@@ -191,6 +191,22 @@ def df(table):
 def insert(table, data):
     return supabase.table(table).insert(data).execute()
 
+# Compatibility helpers for newer Inventory Manager code
+def table_df(table):
+    return df(table)
+
+def cost_per_unit(row):
+    return cpu(row)
+
+def insert_row(table, data):
+    return insert(table, data)
+
+def update_row(table, row_id, data):
+    return supabase.table(table).update(data).eq("id", row_id).execute()
+
+def delete_row(table, row_id):
+    return supabase.table(table).delete().eq("id", row_id).execute()
+
 def cpu(row):
     q = float(row.get("quantity_purchased") or 0)
     t = float(row.get("total_cost") or 0)
