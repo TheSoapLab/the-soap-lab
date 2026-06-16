@@ -4,14 +4,170 @@ from datetime import date, timedelta
 from supabase import create_client
 
 st.set_page_config(page_title="The Soap Lab", layout="wide")
-PINK = "#C989A3"; DARK = "#8F5268"; LIGHT = "#F7E6EC"
+PINK = "#D63384"
+PINK_DARK = "#B91E63"
+PINK_SOFT = "#F8DDE8"
+PINK_PALE = "#FFF7FA"
+TEXT = "#111827"
+MUTED = "#4B5563"
+BORDER = "#E5E7EB"
+CARD = "#FFFFFF"
+
 st.markdown(f"""
 <style>
-.stApp {{background:#fff9fb;}}
-h1,h2,h3 {{color:{DARK};}}
-section[data-testid="stSidebar"] {{background-color:{LIGHT};}}
-div[data-testid="stMetric"] {{background-color:{LIGHT};padding:16px;border-radius:16px;border:1px solid #e5b8c8;}}
-.stButton button {{background-color:{PINK};color:white;border-radius:10px;border:none;}}
+/* GLOBAL */
+html, body, .stApp {{
+    background: {PINK_PALE} !important;
+    color: {TEXT} !important;
+}}
+
+* {{
+    color: {TEXT} !important;
+}}
+
+h1, h2, h3, h4, h5, h6 {{
+    color: {TEXT} !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.02em;
+}}
+
+p, span, label, div {{
+    color: {TEXT} !important;
+}}
+
+/* SIDEBAR */
+section[data-testid="stSidebar"] {{
+    background: linear-gradient(180deg, #FBE7EF 0%, #FFF7FA 100%) !important;
+    border-right: 1px solid #F3C6D7 !important;
+}}
+
+section[data-testid="stSidebar"] * {{
+    color: {TEXT} !important;
+}}
+
+section[data-testid="stSidebar"] h1 {{
+    color: {PINK_DARK} !important;
+    font-size: 1.8rem !important;
+}}
+
+/* RADIO NAV */
+div[role="radiogroup"] label {{
+    background: transparent !important;
+    border-radius: 12px !important;
+    padding: 8px 10px !important;
+}}
+
+div[role="radiogroup"] label:hover {{
+    background: {PINK_SOFT} !important;
+}}
+
+/* FORMS AND INPUTS */
+.stTextInput label,
+.stNumberInput label,
+.stTextArea label,
+.stSelectbox label,
+.stCheckbox label {{
+    color: {TEXT} !important;
+    font-weight: 700 !important;
+    font-size: 0.92rem !important;
+}}
+
+input, textarea {{
+    background-color: #FFFFFF !important;
+    color: {TEXT} !important;
+    border: 1px solid #D1D5DB !important;
+    border-radius: 10px !important;
+}}
+
+input::placeholder, textarea::placeholder {{
+    color: #6B7280 !important;
+}}
+
+[data-baseweb="input"],
+[data-baseweb="textarea"],
+[data-baseweb="select"] > div {{
+    background-color: #FFFFFF !important;
+    color: {TEXT} !important;
+    border-color: #D1D5DB !important;
+    border-radius: 10px !important;
+}}
+
+[data-baseweb="input"] *,
+[data-baseweb="textarea"] *,
+[data-baseweb="select"] * {{
+    color: {TEXT} !important;
+    background-color: transparent !important;
+}}
+
+/* NUMBER INPUT BUTTONS */
+button[kind="secondary"] {{
+    background-color: #FFFFFF !important;
+    color: {TEXT} !important;
+    border: 1px solid #D1D5DB !important;
+}}
+
+/* PRIMARY BUTTONS */
+.stButton button,
+.stFormSubmitButton button {{
+    background: {PINK} !important;
+    color: #FFFFFF !important;
+    border-radius: 10px !important;
+    border: none !important;
+    font-weight: 700 !important;
+    padding: 0.6rem 1rem !important;
+}}
+
+.stButton button:hover,
+.stFormSubmitButton button:hover {{
+    background: {PINK_DARK} !important;
+    color: #FFFFFF !important;
+}}
+
+/* METRIC CARDS */
+div[data-testid="stMetric"] {{
+    background: {CARD} !important;
+    padding: 20px !important;
+    border-radius: 16px !important;
+    border: 1px solid {BORDER} !important;
+    box-shadow: 0 6px 18px rgba(17,24,39,0.05) !important;
+}}
+
+div[data-testid="stMetric"] * {{
+    color: {TEXT} !important;
+}}
+
+div[data-testid="stMetricValue"] {{
+    color: {PINK_DARK} !important;
+    font-weight: 800 !important;
+}}
+
+/* ALERTS */
+div[data-testid="stAlert"] {{
+    border-radius: 12px !important;
+}}
+
+div[data-testid="stAlert"] * {{
+    color: {TEXT} !important;
+}}
+
+/* TABLES */
+[data-testid="stDataFrame"] {{
+    background: #FFFFFF !important;
+    border-radius: 14px !important;
+    border: 1px solid {BORDER} !important;
+    overflow: hidden !important;
+}}
+
+/* EXPANDERS / FORM AREAS */
+.streamlit-expanderHeader {{
+    color: {TEXT} !important;
+    font-weight: 700 !important;
+}}
+
+/* CAPTIONS AND SMALL TEXT */
+small, .caption, [data-testid="stCaptionContainer"] * {{
+    color: {MUTED} !important;
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -73,7 +229,10 @@ if page == "Dashboard":
     c1,c2,c3,c4 = st.columns(4)
     c1.metric("Raw Inventory Value", f"${raw_value:,.2f}"); c2.metric("Finished Goods Value", f"${finished_value:,.2f}"); c3.metric("Recipes", len(recipes)); c4.metric("Batches", len(batches))
     st.subheader("Low Stock Alerts")
-    st.success("No low stock alerts right now.") if low.empty else st.dataframe(low[["item_name","category","current_quantity","unit","reorder_point"]], use_container_width=True)
+    if low.empty:
+        st.success("No low stock alerts right now.")
+    else:
+        st.dataframe(low[["item_name","category","current_quantity","unit","reorder_point"]], use_container_width=True)
 
 elif page == "Inventory":
     st.title("Inventory Manager")
