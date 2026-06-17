@@ -168,6 +168,50 @@ div[data-testid="stAlert"] * {{
 small, .caption, [data-testid="stCaptionContainer"] * {{
     color: {MUTED} !important;
 }}
+
+/* DROPDOWN / SELECT MENU FIX */
+div[data-baseweb="popover"],
+div[data-baseweb="popover"] > div,
+ul[role="listbox"],
+div[role="listbox"],
+[data-baseweb="menu"] {
+    background-color: #FFFFFF !important;
+    color: #111827 !important;
+    border: 1px solid #E5E7EB !important;
+    border-radius: 12px !important;
+}
+
+li[role="option"],
+div[role="option"] {
+    background-color: #FFFFFF !important;
+    color: #111827 !important;
+}
+
+li[role="option"] *,
+div[role="option"] *,
+[data-baseweb="menu"] * {
+    color: #111827 !important;
+}
+
+li[role="option"]:hover,
+div[role="option"]:hover,
+li[aria-selected="true"],
+div[aria-selected="true"] {
+    background-color: #F8DDE8 !important;
+    color: #111827 !important;
+}
+
+[data-baseweb="select"],
+[data-baseweb="select"] > div {
+    background-color: #FFFFFF !important;
+    color: #111827 !important;
+}
+
+[data-baseweb="select"] *,
+[data-baseweb="select"] input {
+    color: #111827 !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -613,7 +657,7 @@ elif page == "Fragrance Library":
 
 elif page == "Recipes":
     st.title("Recipe Manager")
-    st.success("v1.2.1 VERIFIED — Recipe Tabs/Categories are loaded.")
+    st.caption("Manage recipes, recipe tabs/categories, ingredients, costs, and production details.")
 
     if "recipe_mode" not in st.session_state:
         st.session_state.recipe_mode = "list"
