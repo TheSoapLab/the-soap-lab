@@ -195,6 +195,12 @@ def insert(table, data):
 def table_df(table):
     return df(table)
 
+def safe_table_df(table):
+    try:
+        return table_df(table)
+    except Exception:
+        return pd.DataFrame()
+
 def cost_per_unit(row):
     return cpu(row)
 
@@ -607,7 +613,7 @@ elif page == "Fragrance Library":
 
 elif page == "Recipes":
     st.title("Recipe Manager")
-    st.caption("View recipes first, then create, edit, delete, and manage recipe lines as needed.")
+    st.success("v1.2.1 VERIFIED — Recipe Tabs/Categories are loaded.")
 
     if "recipe_mode" not in st.session_state:
         st.session_state.recipe_mode = "list"
@@ -615,18 +621,42 @@ elif page == "Recipes":
         st.session_state.selected_recipe_id = None
     if "selected_recipe_line_id" not in st.session_state:
         st.session_state.selected_recipe_line_id = None
+    if "active_recipe_tab" not in st.session_state:
+        st.session_state.active_recipe_tab = "All"
 
     recipes = table_df("recipes")
     inv = table_df("inventory")
+    recipe_categories = safe_table_df("recipe_categories")
 
-    top1, top2 = st.columns([1.4, 4])
-    if top1.button("➕ Create New Recipe", use_container_width=True):
+    default_tabs = ["Soap", "Melt & Pour", "Lotion", "Body Butter", "Body Oil", "Cuticle Oil", "Bath Bomb", "Shower Steamer"]
+
+    custom_tabs = []
+    if not recipe_categories.empty and "category_name" in recipe_categories.columns:
+        custom_tabs = recipe_categories["category_name"].dropna().astype(str).tolist()
+
+    existing_tabs = []
+    if not recipes.empty and "product_type" in recipes.columns:
+        existing_tabs = recipes["product_type"].dropna().astype(str).unique().tolist()
+
+    recipe_tabs = []
+    for tab in default_tabs + custom_tabs + existing_tabs:
+        if tab and tab not in recipe_tabs:
+            recipe_tabs.append(tab)
+
+    c1, c2, c3 = st.columns([1.5, 1.8, 3])
+    if c1.button("➕ Create New Recipe", use_container_width=True):
         st.session_state.recipe_mode = "add"
         st.session_state.selected_recipe_id = None
         st.session_state.selected_recipe_line_id = None
         st.rerun()
 
-    if st.session_state.recipe_mode in ["add", "details", "edit_recipe", "delete_recipe", "edit_line", "delete_line"]:
+    if c2.button("➕ Create New Tab / Category", use_container_width=True):
+        st.session_state.recipe_mode = "add_tab"
+        st.session_state.selected_recipe_id = None
+        st.session_state.selected_recipe_line_id = None
+        st.rerun()
+
+    if st.session_state.recipe_mode != "list":
         if st.button("← Back to Recipe List"):
             st.session_state.recipe_mode = "list"
             st.session_state.selected_recipe_id = None
@@ -636,14 +666,13 @@ elif page == "Recipes":
     st.divider()
 
     if st.session_state.recipe_mode == "list":
-        st.subheader("Recipe List")
+        st.subheader("Recipe Tabs / Categories")
+        tab_options = ["All"] + recipe_tabs
+        active_tab = st.radio("Choose a recipe tab", tab_options, horizontal=True)
+        st.session_state.active_recipe_tab = active_tab
 
-        c_search, c_filter = st.columns([2, 1])
-        search_term = c_search.text_input("Search recipes", placeholder="Search by recipe name, product type, or notes...")
-        product_filter = c_filter.selectbox(
-            "Filter by product type",
-            ["All", "Soap", "Bath Bomb", "Shower Steamer", "Body Butter", "Body Oil", "Lotion", "Cuticle Oil", "Melt & Pour"]
-        )
+        st.subheader("Recipe List")
+        search_term = st.text_input("Search recipes", placeholder="Search by recipe name, tab/category, or notes...")
 
         display_recipes = recipes.copy()
 
@@ -651,6 +680,9 @@ elif page == "Recipes":
             for col in ["recipe_name", "product_type", "notes"]:
                 if col not in display_recipes.columns:
                     display_recipes[col] = ""
+
+            if active_tab != "All":
+                display_recipes = display_recipes[display_recipes["product_type"] == active_tab]
 
             if search_term:
                 term = search_term.lower()
@@ -660,21 +692,18 @@ elif page == "Recipes":
                     display_recipes["notes"].fillna("").str.lower().str.contains(term)
                 ]
 
-            if product_filter != "All":
-                display_recipes = display_recipes[display_recipes["product_type"] == product_filter]
-
         if display_recipes.empty:
-            st.info("No recipes found. Click Create New Recipe to add one.")
+            st.info("No recipes found in this tab/search.")
         else:
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Total Recipes", len(display_recipes))
-            c2.metric("Product Types", display_recipes["product_type"].nunique())
-            c3.metric("Average Yield", f"{display_recipes['bars_made'].astype(float).mean():.1f}" if "bars_made" in display_recipes else "0")
-            c4.metric("Avg Retail", f"${display_recipes['retail_price'].astype(float).mean():.2f}" if "retail_price" in display_recipes else "$0.00")
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Recipes Shown", len(display_recipes))
+            m2.metric("All Recipes", len(recipes))
+            m3.metric("Average Yield", f"{display_recipes['bars_made'].astype(float).mean():.1f}" if "bars_made" in display_recipes else "0")
+            m4.metric("Avg Retail", f"${display_recipes['retail_price'].astype(float).mean():.2f}" if "retail_price" in display_recipes else "$0.00")
 
-            header = st.columns([2.2, 1.2, 0.8, 0.8, 0.8, 0.8, 0.8])
+            header = st.columns([2.2, 1.3, 0.8, 0.9, 0.8, 0.8, 0.8])
             header[0].markdown("**Recipe**")
-            header[1].markdown("**Product Type**")
+            header[1].markdown("**Tab / Category**")
             header[2].markdown("**Yield**")
             header[3].markdown("**Retail**")
             header[4].markdown("**Open**")
@@ -682,36 +711,65 @@ elif page == "Recipes":
             header[6].markdown("**Delete**")
 
             for _, row in display_recipes.sort_values(["product_type", "recipe_name"]).iterrows():
-                recipe_id = int(row["id"])
-                cols = st.columns([2.2, 1.2, 0.8, 0.8, 0.8, 0.8, 0.8])
+                rid = int(row["id"])
+                cols = st.columns([2.2, 1.3, 0.8, 0.9, 0.8, 0.8, 0.8])
                 cols[0].markdown(f"**{row.get('recipe_name') or ''}**")
                 cols[1].write(row.get("product_type") or "")
                 cols[2].write(int(row.get("bars_made") or 0))
                 cols[3].write(f"${float(row.get('retail_price') or 0):.2f}")
 
-                if cols[4].button("Open", key=f"open_recipe_{recipe_id}"):
-                    st.session_state.selected_recipe_id = recipe_id
+                if cols[4].button("Open", key=f"open_recipe_{rid}"):
+                    st.session_state.selected_recipe_id = rid
                     st.session_state.recipe_mode = "details"
                     st.rerun()
 
-                if cols[5].button("Edit", key=f"edit_recipe_{recipe_id}"):
-                    st.session_state.selected_recipe_id = recipe_id
+                if cols[5].button("Edit", key=f"edit_recipe_{rid}"):
+                    st.session_state.selected_recipe_id = rid
                     st.session_state.recipe_mode = "edit_recipe"
                     st.rerun()
 
-                if cols[6].button("Delete", key=f"delete_recipe_{recipe_id}"):
-                    st.session_state.selected_recipe_id = recipe_id
+                if cols[6].button("Delete", key=f"delete_recipe_{rid}"):
+                    st.session_state.selected_recipe_id = rid
                     st.session_state.recipe_mode = "delete_recipe"
                     st.rerun()
 
                 st.markdown("<hr style='margin: 0.35rem 0; border: none; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
+
+    elif st.session_state.recipe_mode == "add_tab":
+        st.subheader("Create New Recipe Tab / Category")
+        st.write("Examples: Cold Process Soap, Lotions, Body Butters, Scrubs, Wax Melts, Candles, Pet Products.")
+
+        with st.form("create_recipe_tab"):
+            tab_name = st.text_input("Tab / Category Name")
+            description = st.text_area("Description, optional")
+            submitted = st.form_submit_button("Create Tab")
+
+            if submitted:
+                if not tab_name.strip():
+                    st.error("Tab/category name is required.")
+                else:
+                    try:
+                        insert_row("recipe_categories", {
+                            "category_name": tab_name.strip(),
+                            "description": description.strip()
+                        })
+                        st.success(f"Created tab: {tab_name}")
+                        st.session_state.active_recipe_tab = tab_name.strip()
+                        st.session_state.recipe_mode = "list"
+                        st.rerun()
+                    except Exception as e:
+                        st.warning("Custom tabs require the recipe_categories table. Run supabase_recipe_tabs_categories.sql when Supabase is working.")
+                        st.code(str(e))
+
+        st.markdown("#### Available Tabs Right Now")
+        st.write(", ".join(recipe_tabs))
 
     elif st.session_state.recipe_mode == "add":
         st.subheader("Create New Recipe")
 
         with st.form("create_recipe"):
             recipe_name = st.text_input("Recipe Name")
-            product_type = st.selectbox("Product Type", ["Soap", "Bath Bomb", "Shower Steamer", "Body Butter", "Body Oil", "Lotion", "Cuticle Oil", "Melt & Pour"])
+            product_type = st.selectbox("Recipe Tab / Category", recipe_tabs)
             bars_made = st.number_input("Number Made / Batch Yield", min_value=1, step=1)
             retail_price = st.number_input("Retail Price Per Item", min_value=0.0, step=0.01)
             cure_days = st.number_input("Cure / Ready Days", min_value=0, value=42, step=1)
@@ -731,26 +789,27 @@ elif page == "Recipes":
                         "notes": notes.strip()
                     })
                     st.success(f"Created recipe {recipe_name}")
+                    st.session_state.active_recipe_tab = product_type
                     st.session_state.recipe_mode = "list"
                     st.rerun()
 
     elif st.session_state.recipe_mode == "edit_recipe":
-        recipe_id = st.session_state.selected_recipe_id
+        rid = st.session_state.selected_recipe_id
 
-        if recipes.empty or recipe_id is None or recipes[recipes["id"] == recipe_id].empty:
+        if recipes.empty or rid is None or recipes[recipes["id"] == rid].empty:
             st.error("Recipe not found.")
         else:
-            recipe = recipes[recipes["id"] == recipe_id].iloc[0]
+            recipe = recipes[recipes["id"] == rid].iloc[0]
             st.subheader(f"Edit Recipe: {recipe.get('recipe_name')}")
 
-            product_types = ["Soap", "Bath Bomb", "Shower Steamer", "Body Butter", "Body Oil", "Lotion", "Cuticle Oil", "Melt & Pour"]
+            current_category = recipe.get("product_type")
 
             with st.form("edit_recipe_form"):
                 recipe_name = st.text_input("Recipe Name", value=str(recipe.get("recipe_name") or ""))
                 product_type = st.selectbox(
-                    "Product Type",
-                    product_types,
-                    index=product_types.index(recipe.get("product_type")) if recipe.get("product_type") in product_types else 0
+                    "Recipe Tab / Category",
+                    recipe_tabs,
+                    index=recipe_tabs.index(current_category) if current_category in recipe_tabs else 0
                 )
                 bars_made = st.number_input("Number Made / Batch Yield", min_value=1, step=1, value=int(recipe.get("bars_made") or 1))
                 retail_price = st.number_input("Retail Price Per Item", min_value=0.0, step=0.01, value=float(recipe.get("retail_price") or 0))
@@ -759,7 +818,7 @@ elif page == "Recipes":
                 save = st.form_submit_button("Save Recipe Changes")
 
                 if save:
-                    update_row("recipes", recipe_id, {
+                    update_row("recipes", rid, {
                         "recipe_name": recipe_name.strip(),
                         "product_type": product_type,
                         "bars_made": bars_made,
@@ -768,32 +827,31 @@ elif page == "Recipes":
                         "notes": notes.strip()
                     })
                     st.success("Recipe updated.")
+                    st.session_state.active_recipe_tab = product_type
                     st.session_state.recipe_mode = "details"
                     st.rerun()
 
     elif st.session_state.recipe_mode == "delete_recipe":
-        recipe_id = st.session_state.selected_recipe_id
+        rid = st.session_state.selected_recipe_id
 
-        if recipes.empty or recipe_id is None or recipes[recipes["id"] == recipe_id].empty:
+        if recipes.empty or rid is None or recipes[recipes["id"] == rid].empty:
             st.error("Recipe not found.")
         else:
-            recipe = recipes[recipes["id"] == recipe_id].iloc[0]
+            recipe = recipes[recipes["id"] == rid].iloc[0]
             st.subheader("Delete Recipe")
             st.warning("Deleting this recipe will also delete its recipe line items. This cannot be undone.")
             st.markdown(f"### {recipe.get('recipe_name')}")
-            st.write(f"**Product Type:** {recipe.get('product_type') or '—'}")
-            st.write(f"**Yield:** {int(recipe.get('bars_made') or 0)}")
-
+            st.write(f"**Tab / Category:** {recipe.get('product_type') or '—'}")
             d1, d2, d3 = st.columns([1, 1, 3])
             if d1.button("Delete Recipe", type="primary", use_container_width=True):
                 try:
-                    delete_row("recipes", recipe_id)
+                    delete_row("recipes", rid)
                     st.success("Recipe deleted.")
                     st.session_state.recipe_mode = "list"
                     st.session_state.selected_recipe_id = None
                     st.rerun()
                 except Exception as e:
-                    st.error("Could not delete recipe. Supabase may need the recipe delete policy added.")
+                    st.error("Could not delete recipe. Supabase may need delete policies.")
                     st.code(str(e))
 
             if d2.button("Cancel", use_container_width=True):
@@ -802,13 +860,14 @@ elif page == "Recipes":
                 st.rerun()
 
     elif st.session_state.recipe_mode == "details":
-        recipe_id = st.session_state.selected_recipe_id
+        rid = st.session_state.selected_recipe_id
 
-        if recipes.empty or recipe_id is None or recipes[recipes["id"] == recipe_id].empty:
+        if recipes.empty or rid is None or recipes[recipes["id"] == rid].empty:
             st.error("Recipe not found.")
         else:
-            recipe = recipes[recipes["id"] == recipe_id].iloc[0]
+            recipe = recipes[recipes["id"] == rid].iloc[0]
             st.subheader(f"Recipe Details: {recipe.get('recipe_name')}")
+            st.caption(f"Tab / Category: {recipe.get('product_type') or 'Uncategorized'}")
 
             action1, action2, action3 = st.columns([1, 1, 4])
             if action1.button("Edit Recipe", use_container_width=True):
@@ -818,7 +877,7 @@ elif page == "Recipes":
                 st.session_state.recipe_mode = "delete_recipe"
                 st.rerun()
 
-            lines = recipe_lines_df(recipe_id)
+            lines = recipe_lines_df(rid)
 
             total_cost = float(lines["line_cost"].sum()) if not lines.empty else 0
             made = int(recipe.get("bars_made") or 1)
@@ -850,7 +909,7 @@ elif page == "Recipes":
 
                     if add_line:
                         insert_row("recipe_lines", {
-                            "recipe_id": recipe_id,
+                            "recipe_id": rid,
                             "inventory_id": inventory_id,
                             "amount_used": amount_used,
                             "unit": unit,
@@ -875,7 +934,7 @@ elif page == "Recipes":
                 header[6].markdown("**Delete**")
 
                 for _, line in lines.iterrows():
-                    line_id = int(line["id_line"]) if "id_line" in lines.columns else int(line["id"])
+                    lid = int(line["id_line"]) if "id_line" in lines.columns else int(line["id"])
                     cols = st.columns([2.2, 1.1, 0.9, 0.9, 1, 0.8, 0.8])
                     cols[0].markdown(f"**{line.get('item_name') or ''}**")
                     cols[1].write(line.get("category") or "")
@@ -883,33 +942,33 @@ elif page == "Recipes":
                     cols[3].write(line.get("unit_line") or line.get("unit") or "")
                     cols[4].write(f"${float(line.get('line_cost') or 0):.2f}")
 
-                    if cols[5].button("Edit", key=f"edit_line_{line_id}"):
-                        st.session_state.selected_recipe_line_id = line_id
+                    if cols[5].button("Edit", key=f"edit_line_{lid}"):
+                        st.session_state.selected_recipe_line_id = lid
                         st.session_state.recipe_mode = "edit_line"
                         st.rerun()
 
-                    if cols[6].button("Delete", key=f"delete_line_{line_id}"):
-                        st.session_state.selected_recipe_line_id = line_id
+                    if cols[6].button("Delete", key=f"delete_line_{lid}"):
+                        st.session_state.selected_recipe_line_id = lid
                         st.session_state.recipe_mode = "delete_line"
                         st.rerun()
 
                     st.markdown("<hr style='margin: 0.35rem 0; border: none; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
 
     elif st.session_state.recipe_mode == "edit_line":
-        recipe_id = st.session_state.selected_recipe_id
-        line_id = st.session_state.selected_recipe_line_id
-        lines = recipe_lines_df(recipe_id)
+        rid = st.session_state.selected_recipe_id
+        lid = st.session_state.selected_recipe_line_id
+        lines = recipe_lines_df(rid)
 
         if lines.empty:
             st.error("Recipe line not found.")
         else:
             id_col = "id_line" if "id_line" in lines.columns else "id"
-            line_match = lines[lines[id_col] == line_id]
+            match = lines[lines[id_col] == lid]
 
-            if line_match.empty:
+            if match.empty:
                 st.error("Recipe line not found.")
             else:
-                line = line_match.iloc[0]
+                line = match.iloc[0]
                 st.subheader(f"Edit Recipe Line: {line.get('item_name')}")
 
                 with st.form("edit_recipe_line_form"):
@@ -922,7 +981,7 @@ elif page == "Recipes":
                     save_line = st.form_submit_button("Save Line Changes")
 
                     if save_line:
-                        update_row("recipe_lines", line_id, {
+                        update_row("recipe_lines", lid, {
                             "amount_used": amount_used,
                             "unit": unit,
                             "include_on_label": include_on_label,
@@ -934,36 +993,33 @@ elif page == "Recipes":
                         st.rerun()
 
     elif st.session_state.recipe_mode == "delete_line":
-        recipe_id = st.session_state.selected_recipe_id
-        line_id = st.session_state.selected_recipe_line_id
-        lines = recipe_lines_df(recipe_id)
+        rid = st.session_state.selected_recipe_id
+        lid = st.session_state.selected_recipe_line_id
+        lines = recipe_lines_df(rid)
 
         if lines.empty:
             st.error("Recipe line not found.")
         else:
             id_col = "id_line" if "id_line" in lines.columns else "id"
-            line_match = lines[lines[id_col] == line_id]
+            match = lines[lines[id_col] == lid]
 
-            if line_match.empty:
+            if match.empty:
                 st.error("Recipe line not found.")
             else:
-                line = line_match.iloc[0]
+                line = match.iloc[0]
                 st.subheader("Delete Recipe Line")
                 st.warning("This will remove this item from the recipe. It cannot be undone.")
                 st.markdown(f"### {line.get('item_name')}")
-                st.write(f"**Amount:** {float(line.get('amount_used') or 0)} {line.get('unit_line') or line.get('unit') or ''}")
-                st.write(f"**Line Cost:** ${float(line.get('line_cost') or 0):.2f}")
-
                 d1, d2, d3 = st.columns([1, 1, 3])
                 if d1.button("Delete Line", type="primary", use_container_width=True):
                     try:
-                        delete_row("recipe_lines", line_id)
+                        delete_row("recipe_lines", lid)
                         st.success("Recipe line deleted.")
                         st.session_state.recipe_mode = "details"
                         st.session_state.selected_recipe_line_id = None
                         st.rerun()
                     except Exception as e:
-                        st.error("Could not delete recipe line. Supabase may need the recipe line delete policy added.")
+                        st.error("Could not delete recipe line. Supabase may need delete policies.")
                         st.code(str(e))
 
                 if d2.button("Cancel", use_container_width=True):
