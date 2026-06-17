@@ -508,23 +508,31 @@ elif page == "Inventory":
             st.error("Inventory item not found.")
         else:
             selected = df[df["id"] == selected_id].iloc[0]
-            st.subheader(f"Delete: {selected.get('item_name')}")
-            st.error("This is permanent. Only delete test items or inventory you are sure you do not need.")
-            st.write(f"Item: **{selected.get('item_name')}**")
-            st.write(f"Category: **{selected.get('category')}**")
-            st.write(f"Quantity Left: **{float(selected.get('current_quantity') or 0):.2f} {selected.get('unit') or ''}**")
+            st.subheader("Delete Inventory Item")
 
-            confirm_text = st.text_input("Type DELETE to confirm")
-            if confirm_text == "DELETE":
-                if st.button("Permanently Delete This Item"):
-                    try:
-                        delete_row("inventory", selected_id)
-                        st.success("Inventory item deleted.")
-                        st.session_state.inventory_mode = "list"
-                        st.session_state.selected_inventory_id = None
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Could not delete this item. It may be used in a recipe. Error: {e}")
+            st.warning("Once you delete this item, it is permanent and cannot be undone.")
+            st.markdown(f"### {selected.get('item_name')}")
+            st.write(f"**Category:** {selected.get('category') or '—'}")
+            st.write(f"**Supplier:** {selected.get('supplier') or '—'}")
+            st.write(f"**Quantity Left:** {float(selected.get('current_quantity') or 0):.2f} {selected.get('unit') or ''}")
+
+            d1, d2, d3 = st.columns([1, 1, 3])
+
+            if d1.button("Delete Item", type="primary", use_container_width=True):
+                try:
+                    delete_row("inventory", selected_id)
+                    st.success("Inventory item deleted.")
+                    st.session_state.inventory_mode = "list"
+                    st.session_state.selected_inventory_id = None
+                    st.rerun()
+                except Exception as e:
+                    st.error("The item could not be deleted. It may be used in a recipe, or Supabase may still need the delete policy added.")
+                    st.code(str(e))
+
+            if d2.button("Cancel", use_container_width=True):
+                st.session_state.inventory_mode = "list"
+                st.session_state.selected_inventory_id = None
+                st.rerun()
 
     elif st.session_state.inventory_mode == "reports":
         st.subheader("Inventory Reports")
