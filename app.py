@@ -168,7 +168,12 @@ div[data-testid="stAlert"] * {{
 small, .caption, [data-testid="stCaptionContainer"] * {{
     color: {MUTED} !important;
 }}
+</style>
+""", unsafe_allow_html=True)
 
+
+st.markdown("""
+<style>
 /* DROPDOWN / SELECT MENU FIX */
 div[data-baseweb="popover"],
 div[data-baseweb="popover"] > div,
@@ -211,9 +216,9 @@ div[aria-selected="true"] {
 [data-baseweb="select"] input {
     color: #111827 !important;
 }
-
 </style>
 """, unsafe_allow_html=True)
+
 
 @st.cache_resource
 def db():
