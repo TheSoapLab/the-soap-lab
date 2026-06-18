@@ -170,16 +170,6 @@ small, .caption, [data-testid="stCaptionContainer"] * {{
     color: {MUTED} !important;
 }}
 
-/* Fix number input stepper buttons so they are not dark blocks */
-div[data-testid="stNumberInput"] button {
-    background-color: #FFFFFF !important;
-    color: #111827 !important;
-    border: 1px solid #D1D5DB !important;
-}
-div[data-testid="stNumberInput"] button * {
-    color: #111827 !important;
-}
-
 </style>
 """, unsafe_allow_html=True)
 
@@ -266,6 +256,21 @@ div[role="radiogroup"] label p {
 </style>
 """, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+/* Number input stepper fix */
+div[data-testid="stNumberInput"] button {
+    background-color: white !important;
+    color: rgb(17, 24, 39) !important;
+    border: 1px solid rgb(209, 213, 219) !important;
+}
+div[data-testid="stNumberInput"] button * {
+    color: rgb(17, 24, 39) !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 @st.cache_resource
 def db():
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -341,6 +346,7 @@ def cure_status_badge(status):
     return f'<span class="fg-status-badge {css_class}">{status}</span>'
 
 st.sidebar.title("The Soap Lab")
+st.sidebar.caption("v1.3.6")
 st.sidebar.caption("v1.2.9")
 
 main_pages = [
