@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
 
+# The Soap Lab v1.2.9 — Finished Goods editable + Cure Status + expanded sidebar
 st.set_page_config(page_title="The Soap Lab", layout="wide")
 PINK = "#D63384"
 PINK_DARK = "#B91E63"
@@ -285,7 +286,25 @@ def recipe_row(recipe_id):
     return r.iloc[0] if not r.empty else None
 
 st.sidebar.title("The Soap Lab")
-page = st.sidebar.radio("Go to", ["Dashboard","Inventory","Fragrance Library","Recipes","Recipe Cost Summary","Can I Make This?","Batch Production","Finished Goods","Ingredient Label Generator","Product Type View","Sales Tracker"])
+st.sidebar.caption("v1.2.9")
+
+main_pages = [
+    "Dashboard",
+    "Recipes",
+    "Inventory",
+    "Fragrance Library",
+    "Batch Production",
+    "Finished Goods",
+    "Cure Tracking",
+    "Reports",
+    "Ingredient Label Generator",
+    "Product Type View",
+    "Can I Make This?",
+    "Recipe Cost Summary",
+    "POS / Sales",
+]
+settings_pages = ["Suppliers", "Categories", "Units", "My Settings"]
+page = st.sidebar.radio("Go to", main_pages + settings_pages)
 
 if page == "Dashboard":
     st.title("The Soap Lab Dashboard")
@@ -715,7 +734,6 @@ elif page == "Inventory":
 
 elif page == "Fragrance Library":
     st.title("Fragrance Library")
-    st.success("v1.2.6 VERIFIED — Fragrance Categories Loaded")
     st.caption("Organize fragrance oils by scent family, season, dupes, notes, performance, and ratings.")
 
     fragrances = table_df("fragrances")
@@ -1311,7 +1329,7 @@ elif page == "Recipes":
                 st.session_state.recipe_mode = "delete_recipe"
                 st.rerun()
 
-            lines = recipe_lines_df(rid)
+            lines = recipe_lines(rid)
 
             total_cost = float(lines["line_cost"].sum()) if not lines.empty else 0
             made = int(recipe.get("bars_made") or 1)
@@ -1391,7 +1409,7 @@ elif page == "Recipes":
     elif st.session_state.recipe_mode == "edit_line":
         rid = st.session_state.selected_recipe_id
         lid = st.session_state.selected_recipe_line_id
-        lines = recipe_lines_df(rid)
+        lines = recipe_lines(rid)
 
         if lines.empty:
             st.error("Recipe line not found.")
@@ -1429,7 +1447,7 @@ elif page == "Recipes":
     elif st.session_state.recipe_mode == "delete_line":
         rid = st.session_state.selected_recipe_id
         lid = st.session_state.selected_recipe_line_id
-        lines = recipe_lines_df(rid)
+        lines = recipe_lines(rid)
 
         if lines.empty:
             st.error("Recipe line not found.")
@@ -1488,27 +1506,313 @@ elif page == "Can I Make This?":
 elif page == "Batch Production":
     st.title("Batch Production")
     recipes = df("recipes")
-    if recipes.empty: st.warning("Create a recipe first.")
+    cure_status_options = ["Not Started", "Curing", "Finished", "Needs Review"]
+
+    if recipes.empty:
+        st.warning("Create a recipe first.")
     else:
-        choice = st.selectbox("Choose Recipe", recipes["id"].astype(str)+" - "+recipes["recipe_name"]); rid = int(choice.split(" - ")[0]); r = recipe_row(rid); lines = recipe_lines(rid)
-        c1,c2 = st.columns(2); batch = c1.text_input("Batch Number", value=f"{str(r['product_type'])[:2].upper()}-{date.today().strftime('%Y%m%d')}"); made_date = c2.date_input("Date Made", value=date.today())
-        cure_date = made_date + timedelta(days=int(r["cure_days"] or 0)); qty = st.number_input("Quantity Made", min_value=1, value=int(r["bars_made"] or 1)); notes = st.text_area("Batch Notes")
-        total = float(lines["line_cost"].sum()) if not lines.empty else 0; cpi = total/qty if qty else 0
-        st.metric("Batch Cost", f"${total:.2f}"); st.metric("Cost Per Item", f"${cpi:.2f}"); st.write(f"Ready/Cure Date: **{cure_date}**")
+        choice = st.selectbox("Choose Recipe", recipes["id"].astype(str) + " - " + recipes["recipe_name"])
+        rid = int(choice.split(" - ")[0])
+        r = recipe_row(rid)
+        lines = recipe_lines(rid)
+
+        c1, c2, c3 = st.columns(3)
+        batch = c1.text_input("Batch Number", value=f"{str(r['product_type'])[:2].upper()}-{date.today().strftime('%Y%m%d')}")
+        made_date = c2.date_input("Date Made", value=date.today())
+        cure_days = c3.number_input("Cure Days", min_value=0, step=1, value=int(r.get("cure_days") or 0))
+
+        c4, c5 = st.columns(2)
+        default_status = "Finished" if int(cure_days or 0) == 0 else "Curing"
+        cure_status = c4.selectbox("Manual Cure Status", cure_status_options, index=cure_status_options.index(default_status))
+        qty = c5.number_input("Quantity Made", min_value=1, value=int(r["bars_made"] or 1))
+
+        cure_date = made_date + timedelta(days=int(cure_days or 0))
+        notes = st.text_area("Batch Notes")
+
+        total = float(lines["line_cost"].sum()) if not lines.empty else 0
+        cpi = total / qty if qty else 0
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Batch Cost", f"${total:.2f}")
+        m2.metric("Cost Per Item", f"${cpi:.2f}")
+        m3.metric("Manual Status", cure_status)
+        st.write(f"Ready/Cure Date: **{cure_date}**")
+
         if st.button("Save Batch and Add to Finished Goods"):
-            res = insert("batches", {"batch_number":batch,"recipe_id":rid,"date_made":str(made_date),"cure_date":str(cure_date),"quantity_made":qty,"batch_cost":total,"cost_per_item":cpi,"notes":notes})
+            batch_data = {
+                "batch_number": batch,
+                "recipe_id": rid,
+                "date_made": str(made_date),
+                "cure_date": str(cure_date),
+                "cure_days": int(cure_days or 0),
+                "quantity_made": qty,
+                "batch_cost": total,
+                "cost_per_item": cpi,
+                "notes": notes,
+                "cure_status": cure_status
+            }
+            try:
+                res = insert("batches", batch_data)
+            except Exception:
+                batch_data.pop("cure_status", None)
+                res = insert("batches", batch_data)
+
             bid = res.data[0]["id"] if res.data else None
-            insert("finished_goods", {"product_name":r["recipe_name"],"product_type":r["product_type"],"recipe_id":rid,"batch_id":bid,"quantity_on_hand":qty,"cost_per_item":cpi,"retail_price":float(r["retail_price"] or 0),"notes":notes}); st.rerun()
+            goods_data = {
+                "product_name": r["recipe_name"],
+                "product_type": r["product_type"],
+                "recipe_id": rid,
+                "batch_id": bid,
+                "quantity_on_hand": qty,
+                "cure_start_date": str(made_date),
+                "cure_days": int(cure_days or 0),
+                "cure_date": str(cure_date),
+                "cost_per_item": cpi,
+                "retail_price": float(r["retail_price"] or 0),
+                "notes": notes,
+                "cure_status": cure_status
+            }
+            try:
+                insert("finished_goods", goods_data)
+            except Exception:
+                # Older Supabase tables may not have the new cure columns yet.
+                for optional_col in ["cure_status", "cure_start_date", "cure_days", "cure_date"]:
+                    goods_data.pop(optional_col, None)
+                insert("finished_goods", goods_data)
+            st.rerun()
+
         ingredients = "\n".join([f"- {x.item_name}: {x.amount_used} {x.unit_line}" for x in lines.itertuples()]) if not lines.empty else ""
-        st.text_area("Printable Batch Card", value=f"THE SOAP LAB BATCH CARD\n\nBatch: {batch}\nRecipe: {r['recipe_name']}\nDate Made: {made_date}\nReady Date: {cure_date}\nQuantity: {qty}\nBatch Cost: ${total:.2f}\nCost Per Item: ${cpi:.2f}\n\nIngredients:\n{ingredients}\n\nNotes:\n{notes}", height=350)
+        st.text_area("Printable Batch Card", value=f"THE SOAP LAB BATCH CARD\n\nBatch: {batch}\nRecipe: {r['recipe_name']}\nDate Made: {made_date}\nReady Date: {cure_date}\nManual Cure Status: {cure_status}\nQuantity: {qty}\nBatch Cost: ${total:.2f}\nCost Per Item: ${cpi:.2f}\n\nIngredients:\n{ingredients}\n\nNotes:\n{notes}", height=350)
 
 elif page == "Finished Goods":
     st.title("Finished Goods Inventory")
+    st.caption("Track finished products, cure status, cure days, quantities, pricing, and batch notes.")
+
     goods = df("finished_goods")
-    if goods.empty: st.info("No finished goods yet.")
-    else:
-        goods["total_value"] = goods["quantity_on_hand"].astype(float)*goods["cost_per_item"].astype(float)
-        st.dataframe(goods.sort_values("product_name"), use_container_width=True)
+    batches = df("batches")
+    recipes = df("recipes")
+    cure_status_options = ["Not Started", "Curing", "Finished", "Needs Review"]
+
+    if "finished_goods_mode" not in st.session_state:
+        st.session_state.finished_goods_mode = "list"
+    if "selected_finished_good_id" not in st.session_state:
+        st.session_state.selected_finished_good_id = None
+
+    if st.session_state.finished_goods_mode != "list":
+        if st.button("← Back to Finished Goods List"):
+            st.session_state.finished_goods_mode = "list"
+            st.session_state.selected_finished_good_id = None
+            st.rerun()
+
+    def normalize_finished_goods(gdf):
+        if gdf.empty:
+            return gdf
+        defaults = {
+            "product_name": "",
+            "product_type": "",
+            "batch_id": None,
+            "recipe_id": None,
+            "quantity_on_hand": 0,
+            "cost_per_item": 0,
+            "retail_price": 0,
+            "notes": "",
+            "cure_status": "Curing",
+            "cure_days": 0,
+            "cure_start_date": None,
+            "cure_date": None,
+        }
+        for col, default in defaults.items():
+            if col not in gdf.columns:
+                gdf[col] = default
+
+        # Pull cure dates from batches for older records when finished_goods does not have them yet.
+        if not batches.empty and "batch_id" in gdf.columns:
+            batch_cols = [c for c in ["id", "batch_number", "date_made", "cure_date", "cure_days"] if c in batches.columns]
+            if batch_cols:
+                gdf = gdf.merge(batches[batch_cols], left_on="batch_id", right_on="id", how="left", suffixes=("", "_batch"))
+                if "batch_number" not in gdf.columns:
+                    gdf["batch_number"] = ""
+                gdf["cure_start_date"] = gdf["cure_start_date"].fillna(gdf.get("date_made", pd.Series([None] * len(gdf))))
+                gdf["cure_date"] = gdf["cure_date"].fillna(gdf.get("cure_date_batch", pd.Series([None] * len(gdf))))
+                if "cure_days_batch" in gdf.columns:
+                    gdf["cure_days"] = gdf["cure_days"].fillna(gdf["cure_days_batch"])
+        if "batch_number" not in gdf.columns:
+            gdf["batch_number"] = ""
+        gdf["cure_status"] = gdf["cure_status"].fillna("Curing")
+        gdf["cure_days"] = pd.to_numeric(gdf["cure_days"], errors="coerce").fillna(0).astype(int)
+        gdf["quantity_on_hand"] = pd.to_numeric(gdf["quantity_on_hand"], errors="coerce").fillna(0)
+        gdf["cost_per_item"] = pd.to_numeric(gdf["cost_per_item"], errors="coerce").fillna(0)
+        gdf["retail_price"] = pd.to_numeric(gdf["retail_price"], errors="coerce").fillna(0)
+        gdf["total_value"] = gdf["quantity_on_hand"] * gdf["cost_per_item"]
+        return gdf
+
+    goods = normalize_finished_goods(goods)
+
+    if goods.empty:
+        st.info("No finished goods yet. Save a batch from Batch Production to create finished goods inventory.")
+    elif st.session_state.finished_goods_mode == "list":
+        ctop1, ctop2 = st.columns([1.4, 4])
+        if ctop1.button("➕ Create Manual Finished Good", use_container_width=True):
+            st.session_state.finished_goods_mode = "add"
+            st.session_state.selected_finished_good_id = None
+            st.rerun()
+
+        c_search, c_status = st.columns([2, 1])
+        search_term = c_search.text_input("Search finished goods", placeholder="Search product, type, batch, status, or notes...")
+        status_filter = c_status.selectbox("Filter by Cure Status", ["All"] + cure_status_options)
+
+        display_goods = goods.copy()
+        if status_filter != "All":
+            display_goods = display_goods[display_goods["cure_status"] == status_filter]
+        if search_term:
+            term = search_term.lower()
+            searchable_cols = ["product_name", "product_type", "batch_number", "cure_status", "notes"]
+            mask = pd.Series(False, index=display_goods.index)
+            for col in searchable_cols:
+                if col in display_goods.columns:
+                    mask = mask | display_goods[col].fillna("").astype(str).str.lower().str.contains(term)
+            display_goods = display_goods[mask]
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Items Shown", len(display_goods))
+        c2.metric("Finished", int((display_goods["cure_status"] == "Finished").sum()))
+        c3.metric("Curing", int((display_goods["cure_status"] == "Curing").sum()))
+        c4.metric("Inventory Value", f"${display_goods['total_value'].sum():.2f}")
+
+        if display_goods.empty:
+            st.info("No finished goods found for that search/filter.")
+        else:
+            st.markdown("### Finished Goods Lines")
+            header = st.columns([1.8, 1, 0.75, 0.9, 0.9, 1, 0.9, 0.8, 0.8])
+            header[0].markdown("**Product**")
+            header[1].markdown("**Batch**")
+            header[2].markdown("**Qty**")
+            header[3].markdown("**Cure Days**")
+            header[4].markdown("**Ready Date**")
+            header[5].markdown("**Status**")
+            header[6].markdown("**Value**")
+            header[7].markdown("**Edit**")
+            header[8].markdown("**Delete**")
+
+            for _, row in display_goods.sort_values(["cure_status", "product_name"]).iterrows():
+                gid = int(row["id"])
+                cols = st.columns([1.8, 1, 0.75, 0.9, 0.9, 1, 0.9, 0.8, 0.8])
+                cols[0].markdown(f"**{row.get('product_name') or ''}**")
+                cols[1].write(row.get("batch_number") or row.get("batch_id") or "—")
+                cols[2].write(int(row.get("quantity_on_hand") or 0))
+                cols[3].write(int(row.get("cure_days") or 0))
+                cols[4].write(row.get("cure_date") or "—")
+                cols[5].write(row.get("cure_status") or "Curing")
+                cols[6].write(f"${float(row.get('total_value') or 0):.2f}")
+
+                if cols[7].button("Edit", key=f"edit_finished_good_{gid}"):
+                    st.session_state.selected_finished_good_id = gid
+                    st.session_state.finished_goods_mode = "edit"
+                    st.rerun()
+
+                if cols[8].button("Delete", key=f"delete_finished_good_{gid}"):
+                    st.session_state.selected_finished_good_id = gid
+                    st.session_state.finished_goods_mode = "delete"
+                    st.rerun()
+
+                st.markdown("<hr style='margin: 0.35rem 0; border: none; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
+
+    elif st.session_state.finished_goods_mode in ["add", "edit"]:
+        selected_id = st.session_state.selected_finished_good_id
+        is_edit = st.session_state.finished_goods_mode == "edit"
+        selected = None
+        if is_edit:
+            if goods.empty or selected_id is None or goods[goods["id"] == selected_id].empty:
+                st.error("Finished goods line not found.")
+            else:
+                selected = goods[goods["id"] == selected_id].iloc[0]
+
+        if (not is_edit) or selected is not None:
+            st.subheader("Edit Finished Goods Line" if is_edit else "Create Manual Finished Good")
+
+            def as_date(value, fallback=date.today()):
+                try:
+                    if pd.isna(value) or value in [None, ""]:
+                        return fallback
+                    return pd.to_datetime(value).date()
+                except Exception:
+                    return fallback
+
+            with st.form("finished_goods_edit_form"):
+                c1, c2, c3 = st.columns(3)
+                product_name = c1.text_input("Product Name", value=str(selected.get("product_name") or "") if is_edit else "")
+                product_type = c2.text_input("Product Type", value=str(selected.get("product_type") or "") if is_edit else "")
+                batch_id_value = selected.get("batch_id") if is_edit else None
+                batch_label = str(selected.get("batch_number") or batch_id_value or "Manual") if is_edit else "Manual"
+                c3.text_input("Batch", value=batch_label, disabled=True)
+
+                c4, c5, c6 = st.columns(3)
+                qty = c4.number_input("Quantity On Hand", min_value=0, step=1, value=int(selected.get("quantity_on_hand") or 0) if is_edit else 0)
+                cost_per_item = c5.number_input("Cost Per Item", min_value=0.0, step=0.01, value=float(selected.get("cost_per_item") or 0) if is_edit else 0.0)
+                retail_price = c6.number_input("Retail Price", min_value=0.0, step=0.01, value=float(selected.get("retail_price") or 0) if is_edit else 0.0)
+
+                c7, c8, c9 = st.columns(3)
+                current_status = selected.get("cure_status") if is_edit and selected.get("cure_status") in cure_status_options else "Curing"
+                cure_status = c7.selectbox("Cure Status", cure_status_options, index=cure_status_options.index(current_status))
+                cure_days = c8.number_input("Cure Days", min_value=0, step=1, value=int(selected.get("cure_days") or 0) if is_edit else 0)
+                cure_start_date = c9.date_input("Cure Start Date", value=as_date(selected.get("cure_start_date") if is_edit else None))
+
+                calculated_cure_date = cure_start_date + timedelta(days=int(cure_days or 0))
+                c10, c11 = st.columns(2)
+                cure_date = c10.date_input("Ready / Cure Date", value=as_date(selected.get("cure_date") if is_edit else calculated_cure_date, calculated_cure_date))
+                c11.metric("Calculated From Cure Days", str(calculated_cure_date))
+
+                notes = st.text_area("Notes", value=str(selected.get("notes") or "") if is_edit else "")
+                save = st.form_submit_button("Save Finished Goods Line")
+
+                if save:
+                    data = {
+                        "product_name": product_name.strip(),
+                        "product_type": product_type.strip(),
+                        "quantity_on_hand": qty,
+                        "cost_per_item": cost_per_item,
+                        "retail_price": retail_price,
+                        "cure_status": cure_status,
+                        "cure_days": int(cure_days or 0),
+                        "cure_start_date": str(cure_start_date),
+                        "cure_date": str(cure_date),
+                        "notes": notes.strip(),
+                    }
+                    try:
+                        if is_edit:
+                            update_row("finished_goods", selected_id, data)
+                        else:
+                            insert_row("finished_goods", data)
+                        st.session_state.finished_goods_mode = "list"
+                        st.session_state.selected_finished_good_id = None
+                        st.rerun()
+                    except Exception as e:
+                        st.error("Supabase needs the v1.2.8 finished goods columns before this can save.")
+                        st.code(str(e))
+
+    elif st.session_state.finished_goods_mode == "delete":
+        selected_id = st.session_state.selected_finished_good_id
+        if goods.empty or selected_id is None or goods[goods["id"] == selected_id].empty:
+            st.error("Finished goods line not found.")
+        else:
+            selected = goods[goods["id"] == selected_id].iloc[0]
+            st.subheader("Delete Finished Goods Line")
+            st.warning("This removes this finished goods inventory line. It cannot be undone.")
+            st.markdown(f"### {selected.get('product_name')}")
+            d1, d2, d3 = st.columns([1, 1, 3])
+            if d1.button("Delete Line", type="primary", use_container_width=True):
+                try:
+                    delete_row("finished_goods", selected_id)
+                    st.session_state.finished_goods_mode = "list"
+                    st.session_state.selected_finished_good_id = None
+                    st.rerun()
+                except Exception as e:
+                    st.error("Could not delete this line. Supabase may need delete policies.")
+                    st.code(str(e))
+            if d2.button("Cancel", use_container_width=True):
+                st.session_state.finished_goods_mode = "list"
+                st.session_state.selected_finished_good_id = None
+                st.rerun()
 
 elif page == "Ingredient Label Generator":
     st.title("Ingredient Label Generator")
@@ -1536,7 +1840,65 @@ elif page == "Product Type View":
     if not recipes.empty: st.dataframe(recipes[recipes["product_type"] == ptype], use_container_width=True)
     if not goods.empty: st.dataframe(goods[goods["product_type"] == ptype], use_container_width=True)
 
-elif page == "Sales Tracker":
+elif page == "Cure Tracking":
+    st.title("Cure Tracking")
+    goods = df("finished_goods")
+    if goods.empty:
+        st.info("No batches are in cure tracking yet.")
+    else:
+        for col in ["product_name", "cure_status", "cure_days", "cure_start_date", "cure_date", "quantity_on_hand"]:
+            if col not in goods.columns:
+                goods[col] = "" if col in ["product_name", "cure_status", "cure_start_date", "cure_date"] else 0
+        status = st.selectbox("Show Status", ["All", "Not Started", "Curing", "Finished", "Needs Review"])
+        show = goods.copy()
+        if status != "All":
+            show = show[show["cure_status"] == status]
+        st.dataframe(show[["product_name", "quantity_on_hand", "cure_status", "cure_days", "cure_start_date", "cure_date", "notes"] if "notes" in show.columns else ["product_name", "quantity_on_hand", "cure_status", "cure_days", "cure_start_date", "cure_date"]], use_container_width=True, hide_index=True)
+
+elif page == "Reports":
+    st.title("Reports")
+    inv, recipes, batches, goods, sales = df("inventory"), df("recipes"), df("batches"), df("finished_goods"), df("sales")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Inventory Items", len(inv))
+    c2.metric("Recipes", len(recipes))
+    c3.metric("Batches", len(batches))
+    c4.metric("Finished Goods", len(goods))
+    if not goods.empty:
+        if "quantity_on_hand" in goods.columns and "cost_per_item" in goods.columns:
+            goods["total_value"] = pd.to_numeric(goods["quantity_on_hand"], errors="coerce").fillna(0) * pd.to_numeric(goods["cost_per_item"], errors="coerce").fillna(0)
+            st.subheader("Finished Goods Value")
+            st.metric("Total Finished Goods Value", f"${goods['total_value'].sum():.2f}")
+            st.dataframe(goods.sort_values("product_name"), use_container_width=True, hide_index=True)
+
+elif page == "Suppliers":
+    st.title("Suppliers")
+    inv = df("inventory")
+    if inv.empty or "supplier" not in inv.columns:
+        st.info("Suppliers will appear here once they are used in inventory.")
+    else:
+        suppliers = inv.groupby("supplier", dropna=False).agg(item_count=("id", "count")).reset_index().sort_values("supplier")
+        st.dataframe(suppliers, use_container_width=True, hide_index=True)
+
+elif page == "Categories":
+    st.title("Categories")
+    st.write("Recipe, inventory, and fragrance categories are managed inside their matching modules.")
+    for label, table in [("Recipe Categories", "recipe_categories"), ("Inventory Categories", "inventory_categories"), ("Fragrance Categories", "fragrance_categories")]:
+        st.subheader(label)
+        data = safe_table_df(table)
+        if data.empty:
+            st.info(f"No custom {label.lower()} yet.")
+        else:
+            st.dataframe(data, use_container_width=True, hide_index=True)
+
+elif page == "Units":
+    st.title("Units")
+    st.info("Default units currently supported: oz, lb, g, kg, fl oz, and each. Custom unit management can be added in a future build.")
+
+elif page == "My Settings":
+    st.title("My Settings")
+    st.info("App settings page placeholder for v1.2.9. We can add business name, default cure days, default units, and label settings here next.")
+
+elif page in ["Sales Tracker", "POS / Sales"]:
     st.title("Sales Tracker")
     with st.form("sale"):
         c1,c2,c3 = st.columns(3); sale_date = c1.date_input("Sale Date", value=date.today()); channel = c2.selectbox("Channel", ["Etsy","Shopify","Craft Show","Facebook","Direct","Other"]); product = c3.text_input("Product Name")
