@@ -310,6 +310,30 @@ elif page == "Inventory":
     st.caption("Search, view, add, edit, delete, and report on your inventory.")
 
     df = table_df("inventory")
+    inventory_categories = safe_table_df("inventory_categories")
+
+    default_inventory_categories = [
+        "Base Oils", "Butters", "Waxes", "Lye / Alkali", "Liquids",
+        "Fragrance Oils", "Essential Oils", "Clays", "Colorants", "Additives",
+        "Exfoliants", "Preservatives", "Emulsifiers", "Packaging", "Shipping",
+        "Equipment", "Other"
+    ]
+
+    custom_inventory_categories = []
+    if not inventory_categories.empty and "category_name" in inventory_categories.columns:
+        custom_inventory_categories = inventory_categories["category_name"].dropna().astype(str).tolist()
+
+    existing_inventory_categories = []
+    if not df.empty and "category" in df.columns:
+        existing_inventory_categories = df["category"].dropna().astype(str).unique().tolist()
+
+    inventory_category_options = []
+    for cat in default_inventory_categories + custom_inventory_categories + existing_inventory_categories:
+        if cat and cat not in inventory_category_options:
+            inventory_category_options.append(cat)
+
+    if "active_inventory_category" not in st.session_state:
+        st.session_state.active_inventory_category = "All"
 
     if "inventory_mode" not in st.session_state:
         st.session_state.inventory_mode = "list"
@@ -331,17 +355,21 @@ elif page == "Inventory":
             axis=1
         )
 
-    top1, top2, top3 = st.columns([1, 1, 4])
+    top1, top2, top3, top4 = st.columns([1.7, 1.7, 1, 2.6])
     if top1.button("➕ Create New Inventory Item", use_container_width=True):
         st.session_state.inventory_mode = "add"
         st.session_state.selected_inventory_id = None
         st.rerun()
-    if top2.button("📊 Reports", use_container_width=True):
+    if top2.button("➕ Create New Category", use_container_width=True):
+        st.session_state.inventory_mode = "add_category"
+        st.session_state.selected_inventory_id = None
+        st.rerun()
+    if top3.button("📊 Reports", use_container_width=True):
         st.session_state.inventory_mode = "reports"
         st.session_state.selected_inventory_id = None
         st.rerun()
 
-    if st.session_state.inventory_mode in ["add", "edit", "delete", "reports"]:
+    if st.session_state.inventory_mode in ["add", "add_category", "edit", "delete", "reports"]:
         if st.button("← Back to Inventory List"):
             st.session_state.inventory_mode = "list"
             st.session_state.selected_inventory_id = None
@@ -350,14 +378,21 @@ elif page == "Inventory":
     st.divider()
 
     if st.session_state.inventory_mode == "list":
+        st.subheader("Inventory Categories")
+        category_tabs = ["All"] + inventory_category_options
+        category_filter = st.radio(
+            "Choose an inventory category",
+            category_tabs,
+            horizontal=True,
+            index=category_tabs.index(st.session_state.active_inventory_category) if st.session_state.active_inventory_category in category_tabs else 0
+        )
+        st.session_state.active_inventory_category = category_filter
+
         st.subheader("Current Inventory")
 
-        c_search, c_filter = st.columns([2, 1])
+        c_search, c_hint = st.columns([2, 1])
         search_term = c_search.text_input("Search inventory", placeholder="Search item, supplier, category, INCI name, or notes...")
-        category_filter = c_filter.selectbox(
-            "Filter by category",
-            ["All", "Ingredient", "Fragrance", "Colorant", "Packaging", "Shipping", "Equipment"]
-        )
+        c_hint.info("Create custom categories like Baking Soda, Botanicals, Labels, or Specialty Additives.")
 
         display_df = df.copy()
 
@@ -377,13 +412,13 @@ elif page == "Inventory":
                 display_df = display_df[display_df["category"] == category_filter]
 
         if display_df.empty:
-            st.info("No inventory items found.")
+            st.info("No inventory items found in this category/search.")
         else:
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Total Items", len(display_df))
+            c1.metric("Items Shown", len(display_df))
             c2.metric("Inventory Value", f"${display_df['inventory_value'].sum():.2f}")
             c3.metric("Low Stock Items", int((display_df["stock_status"] == "LOW").sum()))
-            c4.metric("Categories", display_df["category"].nunique())
+            c4.metric("All Items", len(df))
 
             st.markdown("### Inventory Items")
 
@@ -424,13 +459,43 @@ elif page == "Inventory":
 
                 st.markdown("<hr style='margin: 0.35rem 0; border: none; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
 
+    elif st.session_state.inventory_mode == "add_category":
+        st.subheader("Create New Inventory Category")
+        st.write("Examples: Baking Soda, Botanicals, Labels, Shrink Wrap, Micas, Milks, Salts, Specialty Additives.")
+
+        with st.form("create_inventory_category"):
+            category_name = st.text_input("Category Name")
+            description = st.text_area("Description, optional")
+            submitted = st.form_submit_button("Create Category")
+
+            if submitted:
+                if not category_name.strip():
+                    st.error("Category name is required.")
+                else:
+                    try:
+                        insert_row("inventory_categories", {
+                            "category_name": category_name.strip(),
+                            "description": description.strip()
+                        })
+                        st.success(f"Created inventory category: {category_name}")
+                        st.session_state.active_inventory_category = category_name.strip()
+                        st.session_state.inventory_mode = "list"
+                        st.rerun()
+                    except Exception as e:
+                        st.warning("Custom inventory categories require the inventory_categories table. Run supabase_inventory_categories.sql when Supabase is working.")
+                        st.code(str(e))
+
+        st.markdown("#### Available Categories Right Now")
+        st.write(", ".join(inventory_category_options))
+
     elif st.session_state.inventory_mode == "add":
         st.subheader("Add New Inventory Item")
 
         with st.form("add_inventory", clear_on_submit=False):
             c1, c2, c3 = st.columns(3)
             item_name = c1.text_input("Item Name")
-            category = c2.selectbox("Category", ["Ingredient", "Fragrance", "Colorant", "Packaging", "Shipping", "Equipment"])
+            default_index = inventory_category_options.index(st.session_state.active_inventory_category) if st.session_state.active_inventory_category in inventory_category_options else 0
+            category = c2.selectbox("Inventory Category", inventory_category_options, index=default_index)
             subcategory = c3.text_input("Subcategory")
 
             c4, c5, c6 = st.columns(3)
@@ -465,6 +530,7 @@ elif page == "Inventory":
                         "notes": notes.strip()
                     })
                     st.success(f"Added {item_name}")
+                    st.session_state.active_inventory_category = category
                     st.session_state.inventory_mode = "list"
                     st.rerun()
 
@@ -509,13 +575,12 @@ elif page == "Inventory":
             with st.form("edit_inventory"):
                 c1, c2, c3 = st.columns(3)
                 edit_item_name = c1.text_input("Item Name", value=str(selected.get("item_name") or ""))
-                categories = ["Ingredient", "Fragrance", "Colorant", "Packaging", "Shipping", "Equipment"]
                 units = ["oz", "lb", "g", "kg", "fl oz", "each"]
 
                 edit_category = c2.selectbox(
-                    "Category",
-                    categories,
-                    index=categories.index(selected.get("category")) if selected.get("category") in categories else 0
+                    "Inventory Category",
+                    inventory_category_options,
+                    index=inventory_category_options.index(selected.get("category")) if selected.get("category") in inventory_category_options else 0
                 )
                 edit_subcategory = c3.text_input("Subcategory", value=str(selected.get("subcategory") or ""))
 
@@ -553,6 +618,7 @@ elif page == "Inventory":
                         "notes": edit_notes.strip()
                     })
                     st.success(f"Updated {edit_item_name}")
+                    st.session_state.active_inventory_category = edit_category
                     st.session_state.inventory_mode = "list"
                     st.rerun()
 
