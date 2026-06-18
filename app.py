@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
 
-# The Soap Lab v1.2.9 — Finished Goods editable + Cure Status + expanded sidebar
+# The Soap Lab v1.3.0 — Finished Goods display fix + editable cure status
 st.set_page_config(page_title="The Soap Lab", layout="wide")
 PINK = "#D63384"
 PINK_DARK = "#B91E63"
@@ -1699,11 +1699,11 @@ elif page == "Finished Goods":
                 cols = st.columns([1.8, 1, 0.75, 0.9, 0.9, 1, 0.9, 0.8, 0.8])
                 cols[0].markdown(f"**{row.get('product_name') or ''}**")
                 cols[1].write(row.get("batch_number") or row.get("batch_id") or "—")
-                cols[2].write(int(row.get("quantity_on_hand") or 0))
-                cols[3].write(int(row.get("cure_days") or 0))
-                cols[4].write(row.get("cure_date") or "—")
-                cols[5].write(row.get("cure_status") or "Curing")
-                cols[6].write(f"${float(row.get('total_value') or 0):.2f}")
+                cols[2].markdown(str(int(row.get("quantity_on_hand") or 0)))
+                cols[3].markdown(str(int(row.get("cure_days") or 0)))
+                cols[4].markdown(str(row.get("cure_date") or "—"))
+                cols[5].markdown(str(row.get("cure_status") or "Curing"))
+                cols[6].markdown(f"${float(row.get('total_value') or 0):.2f}")
 
                 if cols[7].button("Edit", key=f"edit_finished_good_{gid}"):
                     st.session_state.selected_finished_good_id = gid
