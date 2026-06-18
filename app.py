@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
 
-# The Soap Lab v1.3.7 — Finished Goods status filter radio + reliable status saving
+# The Soap Lab v1.3.8 — Finished Goods quick status updates + cure tracking sync
 st.set_page_config(page_title="The Soap Lab", layout="wide")
 PINK = "#D63384"
 PINK_DARK = "#B91E63"
@@ -313,10 +313,17 @@ def update_row(table, row_id, data):
 def delete_row(table, row_id):
     return supabase.table(table).delete().eq("id", row_id).execute()
 
-def update_finished_good_status(row_id, status):
-    """Update cure status and surface any Supabase/RLS errors in the app."""
+def update_finished_good_status(row_id, status, batch_id=None):
+    """Update cure status without deleting or hiding inventory.
+    Also tries to mirror the status to the matching batch when the column exists.
+    """
     try:
         res = update_row("finished_goods", row_id, {"cure_status": status})
+        if batch_id not in [None, "", "nan"]:
+            try:
+                update_row("batches", int(batch_id), {"cure_status": status})
+            except Exception:
+                pass
         return True, res
     except Exception as e:
         st.error("Could not update cure status. Check Supabase column/policy for finished_goods.cure_status.")
@@ -356,7 +363,7 @@ def cure_status_badge(status):
     return f'<span class="fg-status-badge {css_class}">{status}</span>'
 
 st.sidebar.title("The Soap Lab")
-st.sidebar.caption("v1.3.7")
+st.sidebar.caption("v1.3.8")
 main_pages = [
     "Dashboard",
     "Recipes",
@@ -1731,10 +1738,10 @@ elif page == "Finished Goods":
         if "active_finished_goods_status" not in st.session_state:
             st.session_state.active_finished_goods_status = "All"
 
-        st.subheader("Cure Status")
+        st.subheader("View Finished Goods by Cure Status")
         status_tabs = ["All"] + cure_status_options
         status_filter = st.radio(
-            "Choose a cure status",
+            "This filters the list only. To change a product status, use Quick Status or Edit.",
             status_tabs,
             horizontal=True,
             index=status_tabs.index(st.session_state.active_finished_goods_status) if st.session_state.active_finished_goods_status in status_tabs else 0
@@ -1763,34 +1770,49 @@ elif page == "Finished Goods":
             st.info("No finished goods found for that search/filter.")
         else:
             st.markdown("### Finished Goods Lines")
-            header = st.columns([1.8, 1, 0.75, 0.9, 0.9, 1, 0.9, 0.8, 0.8])
+            header = st.columns([1.65, 0.95, 0.65, 0.8, 0.9, 1, 0.8, 1.2, 0.7, 0.7])
             header[0].markdown("**Product**")
             header[1].markdown("**Batch**")
-            header[2].markdown("**Qty**")
+            header[2].markdown("**Qty Available**")
             header[3].markdown("**Cure Days**")
             header[4].markdown("**Ready Date**")
             header[5].markdown("**Status**")
             header[6].markdown("**Value**")
-            header[7].markdown("**Edit**")
-            header[8].markdown("**Delete**")
+            header[7].markdown("**Quick Status**")
+            header[8].markdown("**Edit**")
+            header[9].markdown("**Delete**")
 
-            for _, row in display_goods.sort_values(["cure_status", "product_name"]).iterrows():
+            for _, row in display_goods.sort_values(["product_name"]).iterrows():
                 gid = int(row["id"])
-                cols = st.columns([1.8, 1, 0.75, 0.9, 0.9, 1, 0.9, 0.8, 0.8])
+                current_status = row.get("cure_status") if row.get("cure_status") in cure_status_options else "Curing"
+                cols = st.columns([1.65, 0.95, 0.65, 0.8, 0.9, 1, 0.8, 1.2, 0.7, 0.7])
                 cols[0].markdown(f"**{row.get('product_name') or ''}**")
                 cols[1].write(row.get("batch_number") or row.get("batch_id") or "—")
                 cols[2].markdown(str(int(row.get("quantity_on_hand") or 0)))
                 cols[3].markdown(str(int(row.get("cure_days") or 0)))
                 cols[4].markdown(str(row.get("cure_date") or "—"))
-                cols[5].markdown(cure_status_badge(row.get("cure_status") or "Curing"), unsafe_allow_html=True)
+                cols[5].markdown(cure_status_badge(current_status), unsafe_allow_html=True)
                 cols[6].markdown(f"${float(row.get('total_value') or 0):.2f}")
 
-                if cols[7].button("Edit", key=f"edit_finished_good_{gid}"):
+                quick_status = cols[7].selectbox(
+                    "Quick Status",
+                    cure_status_options,
+                    index=cure_status_options.index(current_status),
+                    key=f"quick_status_{gid}",
+                    label_visibility="collapsed"
+                )
+                if quick_status != current_status:
+                    ok, _ = update_finished_good_status(gid, quick_status, row.get("batch_id"))
+                    if ok:
+                        st.session_state.active_finished_goods_status = "All"
+                        st.rerun()
+
+                if cols[8].button("Edit", key=f"edit_finished_good_{gid}"):
                     st.session_state.selected_finished_good_id = gid
                     st.session_state.finished_goods_mode = "edit"
                     st.rerun()
 
-                if cols[8].button("Delete", key=f"delete_finished_good_{gid}"):
+                if cols[9].button("Delete", key=f"delete_finished_good_{gid}"):
                     st.session_state.selected_finished_good_id = gid
                     st.session_state.finished_goods_mode = "delete"
                     st.rerun()
@@ -1887,9 +1909,14 @@ elif page == "Finished Goods":
                     try:
                         if is_edit:
                             update_row("finished_goods", selected_id, data)
+                            if batch_id_value not in [None, "", "nan"]:
+                                try:
+                                    update_row("batches", int(batch_id_value), {"cure_status": cure_status})
+                                except Exception:
+                                    pass
                         else:
                             insert_row("finished_goods", data)
-                        st.session_state.active_finished_goods_status = cure_status
+                        st.session_state.active_finished_goods_status = "All"
                         st.session_state.finished_goods_mode = "list"
                         st.session_state.selected_finished_good_id = None
                         st.rerun()
@@ -1956,11 +1983,31 @@ elif page == "Cure Tracking":
         for col in ["product_name", "cure_status", "cure_days", "cure_start_date", "cure_date", "quantity_on_hand"]:
             if col not in goods.columns:
                 goods[col] = "" if col in ["product_name", "cure_status", "cure_start_date", "cure_date"] else 0
-        status = st.selectbox("Show Status", ["All", "Not Started", "Curing", "Finished", "Needs Review"])
+        status = st.radio("Show Status", ["All", "Not Started", "Curing", "Finished", "Needs Review"], horizontal=True)
         show = goods.copy()
         if status != "All":
             show = show[show["cure_status"] == status]
-        st.dataframe(show[["product_name", "quantity_on_hand", "cure_status", "cure_days", "cure_start_date", "cure_date", "notes"] if "notes" in show.columns else ["product_name", "quantity_on_hand", "cure_status", "cure_days", "cure_start_date", "cure_date"]], use_container_width=True, hide_index=True)
+        if show.empty:
+            st.info("No cure tracking items found for that status.")
+        else:
+            header = st.columns([2, 0.9, 1.1, 0.8, 1, 1, 1.2])
+            header[0].markdown("**Product**")
+            header[1].markdown("**Qty Available**")
+            header[2].markdown("**Status**")
+            header[3].markdown("**Cure Days**")
+            header[4].markdown("**Start Date**")
+            header[5].markdown("**Ready Date**")
+            header[6].markdown("**Notes**")
+            for _, row in show.sort_values(["cure_status", "product_name"]).iterrows():
+                cols = st.columns([2, 0.9, 1.1, 0.8, 1, 1, 1.2])
+                cols[0].markdown(f"**{row.get('product_name') or ''}**")
+                cols[1].write(int(float(row.get("quantity_on_hand") or 0)))
+                cols[2].markdown(cure_status_badge(row.get("cure_status") or "Curing"), unsafe_allow_html=True)
+                cols[3].write(int(float(row.get("cure_days") or 0)))
+                cols[4].write(row.get("cure_start_date") or "—")
+                cols[5].write(row.get("cure_date") or "—")
+                cols[6].write(row.get("notes") or "")
+                st.markdown("<hr style='margin: 0.35rem 0; border: none; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
 
 elif page == "Reports":
     st.title("Reports")
