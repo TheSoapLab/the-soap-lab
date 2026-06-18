@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
 
-# The Soap Lab v1.3.0 — Finished Goods display fix + editable cure status
+# The Soap Lab v1.3.1 — Finished Goods colored cure status badges
 st.set_page_config(page_title="The Soap Lab", layout="wide")
 PINK = "#D63384"
 PINK_DARK = "#B91E63"
@@ -1694,6 +1694,21 @@ elif page == "Finished Goods":
             header[7].markdown("**Edit**")
             header[8].markdown("**Delete**")
 
+            def cure_status_badge(status):
+                status = str(status or "Curing")
+                badge_styles = {
+                    "Finished": ("#DCFCE7", "#166534", "#86EFAC"),
+                    "Curing": ("#FFEDD5", "#C2410C", "#FDBA74"),
+                    "Needs Review": ("#F3E8FF", "#7E22CE", "#D8B4FE"),
+                    "Not Started": ("#E5E7EB", "#374151", "#D1D5DB"),
+                }
+                bg, fg, border = badge_styles.get(status, ("#E5E7EB", "#374151", "#D1D5DB"))
+                return (
+                    f'<span style="display:inline-block; padding:4px 10px; border-radius:8px; '
+                    f'background:{bg}; color:{fg} !important; border:1px solid {border}; '
+                    f'font-size:0.82rem; font-weight:800; line-height:1; white-space:nowrap;">{status}</span>'
+                )
+
             for _, row in display_goods.sort_values(["cure_status", "product_name"]).iterrows():
                 gid = int(row["id"])
                 cols = st.columns([1.8, 1, 0.75, 0.9, 0.9, 1, 0.9, 0.8, 0.8])
@@ -1702,7 +1717,7 @@ elif page == "Finished Goods":
                 cols[2].markdown(str(int(row.get("quantity_on_hand") or 0)))
                 cols[3].markdown(str(int(row.get("cure_days") or 0)))
                 cols[4].markdown(str(row.get("cure_date") or "—"))
-                cols[5].markdown(str(row.get("cure_status") or "Curing"))
+                cols[5].markdown(cure_status_badge(row.get("cure_status") or "Curing"), unsafe_allow_html=True)
                 cols[6].markdown(f"${float(row.get('total_value') or 0):.2f}")
 
                 if cols[7].button("Edit", key=f"edit_finished_good_{gid}"):
