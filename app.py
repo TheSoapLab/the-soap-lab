@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
 
-# The Soap Lab v1.3.3 — Finished Goods status buttons bugfix
+# The Soap Lab v1.3.7 — Finished Goods status filter radio + reliable status saving
 st.set_page_config(page_title="The Soap Lab", layout="wide")
 PINK = "#D63384"
 PINK_DARK = "#B91E63"
@@ -313,6 +313,16 @@ def update_row(table, row_id, data):
 def delete_row(table, row_id):
     return supabase.table(table).delete().eq("id", row_id).execute()
 
+def update_finished_good_status(row_id, status):
+    """Update cure status and surface any Supabase/RLS errors in the app."""
+    try:
+        res = update_row("finished_goods", row_id, {"cure_status": status})
+        return True, res
+    except Exception as e:
+        st.error("Could not update cure status. Check Supabase column/policy for finished_goods.cure_status.")
+        st.code(str(e))
+        return False, None
+
 def cpu(row):
     q = float(row.get("quantity_purchased") or 0)
     t = float(row.get("total_cost") or 0)
@@ -346,9 +356,7 @@ def cure_status_badge(status):
     return f'<span class="fg-status-badge {css_class}">{status}</span>'
 
 st.sidebar.title("The Soap Lab")
-st.sidebar.caption("v1.3.6")
-st.sidebar.caption("v1.2.9")
-
+st.sidebar.caption("v1.3.7")
 main_pages = [
     "Dashboard",
     "Recipes",
@@ -1718,9 +1726,20 @@ elif page == "Finished Goods":
             st.session_state.selected_finished_good_id = None
             st.rerun()
 
-        c_search, c_status = st.columns([2, 1])
-        search_term = c_search.text_input("Search finished goods", placeholder="Search product, type, batch, status, or notes...")
-        status_filter = c_status.selectbox("Filter by Cure Status", ["All"] + cure_status_options)
+        search_term = st.text_input("Search finished goods", placeholder="Search product, type, batch, status, or notes...")
+
+        if "active_finished_goods_status" not in st.session_state:
+            st.session_state.active_finished_goods_status = "All"
+
+        st.subheader("Cure Status")
+        status_tabs = ["All"] + cure_status_options
+        status_filter = st.radio(
+            "Choose a cure status",
+            status_tabs,
+            horizontal=True,
+            index=status_tabs.index(st.session_state.active_finished_goods_status) if st.session_state.active_finished_goods_status in status_tabs else 0
+        )
+        st.session_state.active_finished_goods_status = status_filter
 
         display_goods = goods.copy()
         if status_filter != "All":
@@ -1776,20 +1795,6 @@ elif page == "Finished Goods":
                     st.session_state.finished_goods_mode = "delete"
                     st.rerun()
 
-                quick_cols = st.columns([0.9, 0.9, 0.9, 0.9, 4.4])
-                if quick_cols[0].button("Not Started", key=f"fg_not_started_{gid}"):
-                    update_row("finished_goods", gid, {"cure_status": "Not Started"})
-                    st.rerun()
-                if quick_cols[1].button("Curing", key=f"fg_curing_{gid}"):
-                    update_row("finished_goods", gid, {"cure_status": "Curing"})
-                    st.rerun()
-                if quick_cols[2].button("Finished", key=f"fg_finished_{gid}"):
-                    update_row("finished_goods", gid, {"cure_status": "Finished"})
-                    st.rerun()
-                if quick_cols[3].button("Needs Review", key=f"fg_review_{gid}"):
-                    update_row("finished_goods", gid, {"cure_status": "Needs Review"})
-                    st.rerun()
-
                 st.markdown("<hr style='margin: 0.55rem 0; border: none; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
 
     elif st.session_state.finished_goods_mode in ["add", "edit"]:
@@ -1808,20 +1813,7 @@ elif page == "Finished Goods":
             if is_edit:
                 current_quick_status = selected.get("cure_status") if selected.get("cure_status") in cure_status_options else "Curing"
                 st.markdown(f"**Current Cure Status:** {cure_status_badge(current_quick_status)}", unsafe_allow_html=True)
-                st.caption("Quick status buttons save immediately.")
-                q1, q2, q3, q4 = st.columns(4)
-                if q1.button("Not Started", key="fg_status_not_started", use_container_width=True):
-                    update_row("finished_goods", selected_id, {"cure_status": "Not Started"})
-                    st.rerun()
-                if q2.button("Curing", key="fg_status_curing", use_container_width=True):
-                    update_row("finished_goods", selected_id, {"cure_status": "Curing"})
-                    st.rerun()
-                if q3.button("Finished", key="fg_status_finished", use_container_width=True):
-                    update_row("finished_goods", selected_id, {"cure_status": "Finished"})
-                    st.rerun()
-                if q4.button("Needs Review", key="fg_status_review", use_container_width=True):
-                    update_row("finished_goods", selected_id, {"cure_status": "Needs Review"})
-                    st.rerun()
+                st.caption("Change the cure status below and click Save Finished Goods Line.")
 
             def as_date(value, fallback=date.today()):
                 try:
@@ -1897,6 +1889,7 @@ elif page == "Finished Goods":
                             update_row("finished_goods", selected_id, data)
                         else:
                             insert_row("finished_goods", data)
+                        st.session_state.active_finished_goods_status = cure_status
                         st.session_state.finished_goods_mode = "list"
                         st.session_state.selected_finished_good_id = None
                         st.rerun()
