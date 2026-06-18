@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
 
-# The Soap Lab v1.3.2 — Finished Goods status buttons and editable date text fields
+# The Soap Lab v1.3.3 — Finished Goods status buttons bugfix
 st.set_page_config(page_title="The Soap Lab", layout="wide")
 PINK = "#D63384"
 PINK_DARK = "#B91E63"
@@ -169,6 +169,17 @@ div[data-testid="stAlert"] * {{
 small, .caption, [data-testid="stCaptionContainer"] * {{
     color: {MUTED} !important;
 }}
+
+/* Fix number input stepper buttons so they are not dark blocks */
+div[data-testid="stNumberInput"] button {
+    background-color: #FFFFFF !important;
+    color: #111827 !important;
+    border: 1px solid #D1D5DB !important;
+}
+div[data-testid="stNumberInput"] button * {
+    color: #111827 !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -247,6 +258,11 @@ div[data-baseweb="input"] [role="button"] {
     color:#111827 !important;
     border-color:#D1D5DB !important;
 }
+
+/* make cure status radio look cleaner */
+div[role="radiogroup"] label p {
+    color:#111827 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -313,6 +329,16 @@ def recipe_row(recipe_id):
     if r.empty: return None
     r = r[r["id"] == recipe_id]
     return r.iloc[0] if not r.empty else None
+
+def cure_status_badge(status):
+    status = str(status or "Curing")
+    css_class = {
+        "Finished": "fg-finished",
+        "Curing": "fg-curing",
+        "Needs Review": "fg-review",
+        "Not Started": "fg-not-started",
+    }.get(status, "fg-not-started")
+    return f'<span class="fg-status-badge {css_class}">{status}</span>'
 
 st.sidebar.title("The Soap Lab")
 st.sidebar.caption("v1.2.9")
@@ -1723,16 +1749,6 @@ elif page == "Finished Goods":
             header[7].markdown("**Edit**")
             header[8].markdown("**Delete**")
 
-            def cure_status_badge(status):
-                status = str(status or "Curing")
-                css_class = {
-                    "Finished": "fg-finished",
-                    "Curing": "fg-curing",
-                    "Needs Review": "fg-review",
-                    "Not Started": "fg-not-started",
-                }.get(status, "fg-not-started")
-                return f'<span class="fg-status-badge {css_class}">{status}</span>'
-
             for _, row in display_goods.sort_values(["cure_status", "product_name"]).iterrows():
                 gid = int(row["id"])
                 cols = st.columns([1.8, 1, 0.75, 0.9, 0.9, 1, 0.9, 0.8, 0.8])
@@ -1782,6 +1798,24 @@ elif page == "Finished Goods":
 
         if (not is_edit) or selected is not None:
             st.subheader("Edit Finished Goods Line" if is_edit else "Create Manual Finished Good")
+
+            if is_edit:
+                current_quick_status = selected.get("cure_status") if selected.get("cure_status") in cure_status_options else "Curing"
+                st.markdown(f"**Current Cure Status:** {cure_status_badge(current_quick_status)}", unsafe_allow_html=True)
+                st.caption("Quick status buttons save immediately.")
+                q1, q2, q3, q4 = st.columns(4)
+                if q1.button("Not Started", key="fg_status_not_started", use_container_width=True):
+                    update_row("finished_goods", selected_id, {"cure_status": "Not Started"})
+                    st.rerun()
+                if q2.button("Curing", key="fg_status_curing", use_container_width=True):
+                    update_row("finished_goods", selected_id, {"cure_status": "Curing"})
+                    st.rerun()
+                if q3.button("Finished", key="fg_status_finished", use_container_width=True):
+                    update_row("finished_goods", selected_id, {"cure_status": "Finished"})
+                    st.rerun()
+                if q4.button("Needs Review", key="fg_status_review", use_container_width=True):
+                    update_row("finished_goods", selected_id, {"cure_status": "Needs Review"})
+                    st.rerun()
 
             def as_date(value, fallback=date.today()):
                 try:
