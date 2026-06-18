@@ -715,16 +715,335 @@ elif page == "Inventory":
 
 elif page == "Fragrance Library":
     st.title("Fragrance Library")
-    with st.form("fragrance"):
-        c1,c2,c3 = st.columns(3)
-        name = c1.text_input("Fragrance Name"); supplier = c2.text_input("Supplier"); qty = c3.number_input("Quantity oz", min_value=0.0, step=.01)
-        c4,c5,c6 = st.columns(3)
-        total = c4.number_input("Total Cost", min_value=0.0, step=.01); vanillin = c5.text_input("Vanillin %"); ifra = c6.text_input("IFRA Notes")
-        cp = st.text_area("Cold Process / Cure Notes"); s = st.slider("Strength Rating",1,5,3); o = st.slider("Overall Rating",1,5,3); notes = st.text_area("Other Notes")
-        if st.form_submit_button("Save Fragrance") and name:
-            insert("fragrances", {"fragrance_name":name,"supplier":supplier,"quantity_oz":qty,"total_cost":total,"vanillin":vanillin,"ifra_notes":ifra,"cp_notes":cp,"strength_rating":s,"overall_rating":o,"notes":notes}); st.rerun()
-    f = df("fragrances")
-    if not f.empty: st.dataframe(f.sort_values("fragrance_name"), use_container_width=True)
+    st.success("v1.2.6 VERIFIED — Fragrance Categories Loaded")
+    st.caption("Organize fragrance oils by scent family, season, dupes, notes, performance, and ratings.")
+
+    fragrances = table_df("fragrances")
+    fragrance_categories = safe_table_df("fragrance_categories")
+
+    if "fragrance_mode" not in st.session_state:
+        st.session_state.fragrance_mode = "list"
+    if "selected_fragrance_id" not in st.session_state:
+        st.session_state.selected_fragrance_id = None
+    if "active_fragrance_category" not in st.session_state:
+        st.session_state.active_fragrance_category = "All"
+
+    default_fragrance_categories = [
+        "Men's",
+        "Women's",
+        "Dupes",
+        "Christmas",
+        "Fall",
+        "Fruit",
+        "Bakery",
+        "Floral",
+        "Fresh / Clean",
+        "Spa",
+        "Herbal",
+        "Citrus",
+        "Vanilla / Sweet",
+        "Seasonal",
+        "Nature / Outdoors",
+        "Other"
+    ]
+
+    custom_fragrance_categories = []
+    if not fragrance_categories.empty and "category_name" in fragrance_categories.columns:
+        custom_fragrance_categories = fragrance_categories["category_name"].dropna().astype(str).tolist()
+
+    existing_fragrance_categories = []
+    if not fragrances.empty and "category" in fragrances.columns:
+        existing_fragrance_categories = fragrances["category"].dropna().astype(str).unique().tolist()
+
+    fragrance_category_options = []
+    for cat in default_fragrance_categories + custom_fragrance_categories + existing_fragrance_categories:
+        if cat and cat not in fragrance_category_options:
+            fragrance_category_options.append(cat)
+
+    if not fragrances.empty:
+        for col in ["fragrance_name", "supplier", "vanillin", "ifra_notes", "cp_notes", "notes"]:
+            if col not in fragrances.columns:
+                fragrances[col] = ""
+        if "category" not in fragrances.columns:
+            fragrances["category"] = "Other"
+        for col in ["quantity_oz", "total_cost", "strength_rating", "overall_rating"]:
+            if col not in fragrances.columns:
+                fragrances[col] = 0
+
+        fragrances["cost_per_oz"] = fragrances.apply(
+            lambda r: float(r.get("total_cost") or 0) / float(r.get("quantity_oz") or 1) if float(r.get("quantity_oz") or 0) else 0,
+            axis=1
+        )
+
+    c1, c2, c3 = st.columns([1.7, 1.8, 3])
+    if c1.button("➕ Create New Fragrance", use_container_width=True):
+        st.session_state.fragrance_mode = "add"
+        st.session_state.selected_fragrance_id = None
+        st.rerun()
+
+    if c2.button("➕ Create New Fragrance Category", use_container_width=True):
+        st.session_state.fragrance_mode = "add_category"
+        st.session_state.selected_fragrance_id = None
+        st.rerun()
+
+    if st.session_state.fragrance_mode != "list":
+        if st.button("← Back to Fragrance List"):
+            st.session_state.fragrance_mode = "list"
+            st.session_state.selected_fragrance_id = None
+            st.rerun()
+
+    st.divider()
+
+    if st.session_state.fragrance_mode == "list":
+        st.subheader("Fragrance Categories")
+        tab_options = ["All"] + fragrance_category_options
+
+        selected_category = st.radio(
+            "Choose a fragrance category",
+            tab_options,
+            horizontal=True,
+            index=tab_options.index(st.session_state.active_fragrance_category) if st.session_state.active_fragrance_category in tab_options else 0
+        )
+        st.session_state.active_fragrance_category = selected_category
+
+        st.subheader("Fragrance List")
+
+        c_search, c_hint = st.columns([2, 1])
+        search_term = c_search.text_input("Search fragrances", placeholder="Search fragrance, supplier, category, notes, vanillin, IFRA...")
+        c_hint.info("Default categories show even before the Supabase category table is created.")
+
+        display_df = fragrances.copy()
+
+        if not display_df.empty:
+            if selected_category != "All":
+                display_df = display_df[display_df["category"] == selected_category]
+
+            if search_term:
+                term = search_term.lower()
+                display_df = display_df[
+                    display_df["fragrance_name"].fillna("").str.lower().str.contains(term) |
+                    display_df["supplier"].fillna("").str.lower().str.contains(term) |
+                    display_df["category"].fillna("").str.lower().str.contains(term) |
+                    display_df["vanillin"].fillna("").str.lower().str.contains(term) |
+                    display_df["ifra_notes"].fillna("").str.lower().str.contains(term) |
+                    display_df["cp_notes"].fillna("").str.lower().str.contains(term) |
+                    display_df["notes"].fillna("").str.lower().str.contains(term)
+                ]
+
+        if display_df.empty:
+            st.info("No fragrances found in this category/search.")
+        else:
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Fragrances Shown", len(display_df))
+            m2.metric("All Fragrances", len(fragrances))
+            m3.metric("Avg Strength", f"{display_df['strength_rating'].astype(float).mean():.1f} ⭐")
+            m4.metric("Avg Rating", f"{display_df['overall_rating'].astype(float).mean():.1f} ⭐")
+
+            header_cols = st.columns([2.1, 1.1, 1.1, 0.8, 0.8, 0.8, 0.75, 0.75])
+            header_cols[0].markdown("**Fragrance**")
+            header_cols[1].markdown("**Category**")
+            header_cols[2].markdown("**Supplier**")
+            header_cols[3].markdown("**Qty**")
+            header_cols[4].markdown("**Strength**")
+            header_cols[5].markdown("**Rating**")
+            header_cols[6].markdown("**Edit**")
+            header_cols[7].markdown("**Delete**")
+
+            for _, row in display_df.sort_values(["category", "fragrance_name"]).iterrows():
+                row_id = int(row["id"])
+                cols = st.columns([2.1, 1.1, 1.1, 0.8, 0.8, 0.8, 0.75, 0.75])
+                cols[0].markdown(f"**{row.get('fragrance_name') or ''}**")
+                cols[1].write(row.get("category") or "Other")
+                cols[2].write(row.get("supplier") or "—")
+                cols[3].write(f"{float(row.get('quantity_oz') or 0):.2f} oz")
+                cols[4].write(f"{int(row.get('strength_rating') or 0)} ⭐")
+                cols[5].write(f"{int(row.get('overall_rating') or 0)} ⭐")
+
+                if cols[6].button("Edit", key=f"edit_fragrance_{row_id}"):
+                    st.session_state.selected_fragrance_id = row_id
+                    st.session_state.fragrance_mode = "edit"
+                    st.rerun()
+
+                if cols[7].button("Delete", key=f"delete_fragrance_{row_id}"):
+                    st.session_state.selected_fragrance_id = row_id
+                    st.session_state.fragrance_mode = "delete"
+                    st.rerun()
+
+                st.markdown("<hr style='margin: 0.35rem 0; border: none; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
+
+    elif st.session_state.fragrance_mode == "add_category":
+        st.subheader("Create New Fragrance Category")
+        st.write("Examples: Summer, Spring, Candy, Masculine, Dupes, Christmas, Fall, Fruit, Bakery, Spa.")
+
+        with st.form("create_fragrance_category"):
+            category_name = st.text_input("Category Name")
+            description = st.text_area("Description, optional")
+            submitted = st.form_submit_button("Create Category")
+
+            if submitted:
+                if not category_name.strip():
+                    st.error("Category name is required.")
+                else:
+                    try:
+                        insert_row("fragrance_categories", {
+                            "category_name": category_name.strip(),
+                            "description": description.strip()
+                        })
+                        st.success(f"Created fragrance category: {category_name}")
+                        st.session_state.active_fragrance_category = category_name.strip()
+                        st.session_state.fragrance_mode = "list"
+                        st.rerun()
+                    except Exception as e:
+                        st.warning("Custom fragrance categories require the fragrance_categories table. Run supabase_fragrance_categories.sql when Supabase is working.")
+                        st.code(str(e))
+
+        st.markdown("#### Available Categories Right Now")
+        st.write(", ".join(fragrance_category_options))
+
+    elif st.session_state.fragrance_mode == "add":
+        st.subheader("Create New Fragrance")
+
+        with st.form("add_fragrance"):
+            c1, c2, c3 = st.columns(3)
+            fragrance_name = c1.text_input("Fragrance Name")
+            default_index = fragrance_category_options.index(st.session_state.active_fragrance_category) if st.session_state.active_fragrance_category in fragrance_category_options else 0
+            category = c2.selectbox("Fragrance Category", fragrance_category_options, index=default_index)
+            supplier = c3.text_input("Supplier")
+
+            c4, c5, c6 = st.columns(3)
+            quantity_oz = c4.number_input("Quantity oz", min_value=0.0, step=0.01)
+            total_cost = c5.number_input("Total Cost", min_value=0.0, step=0.01)
+            vanillin = c6.text_input("Vanillin %")
+
+            ifra_notes = st.text_input("IFRA Notes")
+            cp_notes = st.text_area("Cold Process / Cure Notes")
+
+            c7, c8 = st.columns(2)
+            strength_rating = c7.slider("Strength Rating", 1, 5, 3)
+            overall_rating = c8.slider("Overall Rating", 1, 5, 3)
+            notes = st.text_area("Other Notes")
+
+            submitted = st.form_submit_button("Save Fragrance")
+            if submitted:
+                if not fragrance_name.strip():
+                    st.error("Fragrance name is required.")
+                else:
+                    data = {
+                        "fragrance_name": fragrance_name.strip(),
+                        "supplier": supplier.strip(),
+                        "quantity_oz": quantity_oz,
+                        "total_cost": total_cost,
+                        "vanillin": vanillin.strip(),
+                        "ifra_notes": ifra_notes.strip(),
+                        "cp_notes": cp_notes.strip(),
+                        "strength_rating": strength_rating,
+                        "overall_rating": overall_rating,
+                        "notes": notes.strip(),
+                        "category": category
+                    }
+                    try:
+                        insert_row("fragrances", data)
+                    except Exception:
+                        data.pop("category", None)
+                        insert_row("fragrances", data)
+                    st.success(f"Saved {fragrance_name}")
+                    st.session_state.active_fragrance_category = category
+                    st.session_state.fragrance_mode = "list"
+                    st.rerun()
+
+    elif st.session_state.fragrance_mode == "edit":
+        selected_id = st.session_state.selected_fragrance_id
+
+        if fragrances.empty or selected_id is None or fragrances[fragrances["id"] == selected_id].empty:
+            st.error("Fragrance not found.")
+        else:
+            selected = fragrances[fragrances["id"] == selected_id].iloc[0]
+            st.subheader(f"Edit: {selected.get('fragrance_name')}")
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Quantity", f"{float(selected.get('quantity_oz') or 0):.2f} oz")
+            m2.metric("Cost / oz", f"${float(selected.get('cost_per_oz') or 0):.4f}")
+            m3.metric("Strength", f"{int(selected.get('strength_rating') or 0)} ⭐")
+            m4.metric("Rating", f"{int(selected.get('overall_rating') or 0)} ⭐")
+
+            with st.form("edit_fragrance_form"):
+                c1, c2, c3 = st.columns(3)
+                fragrance_name = c1.text_input("Fragrance Name", value=str(selected.get("fragrance_name") or ""))
+                current_cat = selected.get("category") if selected.get("category") else "Other"
+                category = c2.selectbox(
+                    "Fragrance Category",
+                    fragrance_category_options,
+                    index=fragrance_category_options.index(current_cat) if current_cat in fragrance_category_options else 0
+                )
+                supplier = c3.text_input("Supplier", value=str(selected.get("supplier") or ""))
+
+                c4, c5, c6 = st.columns(3)
+                quantity_oz = c4.number_input("Quantity oz", min_value=0.0, step=0.01, value=float(selected.get("quantity_oz") or 0))
+                total_cost = c5.number_input("Total Cost", min_value=0.0, step=0.01, value=float(selected.get("total_cost") or 0))
+                vanillin = c6.text_input("Vanillin %", value=str(selected.get("vanillin") or ""))
+
+                ifra_notes = st.text_input("IFRA Notes", value=str(selected.get("ifra_notes") or ""))
+                cp_notes = st.text_area("Cold Process / Cure Notes", value=str(selected.get("cp_notes") or ""))
+
+                c7, c8 = st.columns(2)
+                strength_rating = c7.slider("Strength Rating", 1, 5, int(selected.get("strength_rating") or 3))
+                overall_rating = c8.slider("Overall Rating", 1, 5, int(selected.get("overall_rating") or 3))
+                notes = st.text_area("Other Notes", value=str(selected.get("notes") or ""))
+
+                submitted = st.form_submit_button("Save Changes")
+                if submitted:
+                    data = {
+                        "fragrance_name": fragrance_name.strip(),
+                        "supplier": supplier.strip(),
+                        "quantity_oz": quantity_oz,
+                        "total_cost": total_cost,
+                        "vanillin": vanillin.strip(),
+                        "ifra_notes": ifra_notes.strip(),
+                        "cp_notes": cp_notes.strip(),
+                        "strength_rating": strength_rating,
+                        "overall_rating": overall_rating,
+                        "notes": notes.strip(),
+                        "category": category
+                    }
+                    try:
+                        update_row("fragrances", selected_id, data)
+                    except Exception:
+                        data.pop("category", None)
+                        update_row("fragrances", selected_id, data)
+                    st.success("Fragrance updated.")
+                    st.session_state.active_fragrance_category = category
+                    st.session_state.fragrance_mode = "list"
+                    st.rerun()
+
+    elif st.session_state.fragrance_mode == "delete":
+        selected_id = st.session_state.selected_fragrance_id
+
+        if fragrances.empty or selected_id is None or fragrances[fragrances["id"] == selected_id].empty:
+            st.error("Fragrance not found.")
+        else:
+            selected = fragrances[fragrances["id"] == selected_id].iloc[0]
+            st.subheader("Delete Fragrance")
+            st.warning("Once you delete this fragrance, it is permanent and cannot be undone.")
+            st.markdown(f"### {selected.get('fragrance_name')}")
+            st.write(f"**Category:** {selected.get('category') or 'Other'}")
+            st.write(f"**Supplier:** {selected.get('supplier') or '—'}")
+
+            d1, d2, d3 = st.columns([1, 1, 3])
+            if d1.button("Delete Fragrance", type="primary", use_container_width=True):
+                try:
+                    delete_row("fragrances", selected_id)
+                    st.success("Fragrance deleted.")
+                    st.session_state.fragrance_mode = "list"
+                    st.session_state.selected_fragrance_id = None
+                    st.rerun()
+                except Exception as e:
+                    st.error("The fragrance could not be deleted. Supabase may need the delete policy added.")
+                    st.code(str(e))
+
+            if d2.button("Cancel", use_container_width=True):
+                st.session_state.fragrance_mode = "list"
+                st.session_state.selected_fragrance_id = None
+                st.rerun()
 
 elif page == "Recipes":
     st.title("Recipe Manager")
