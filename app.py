@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
 
-# The Soap Lab v1.3.1 — Finished Goods colored cure status badges
+# The Soap Lab v1.3.2 — Finished Goods status buttons and editable date text fields
 st.set_page_config(page_title="The Soap Lab", layout="wide")
 PINK = "#D63384"
 PINK_DARK = "#B91E63"
@@ -220,6 +220,35 @@ div[aria-selected="true"] {
 </style>
 """, unsafe_allow_html=True)
 
+
+
+
+st.markdown("""
+<style>
+/* FINISHED GOODS STATUS BADGES / FORM CONTROL FIXES */
+.fg-status-badge {
+    display:inline-block;
+    padding:4px 10px;
+    border-radius:8px;
+    font-size:0.82rem;
+    font-weight:800;
+    line-height:1;
+    white-space:nowrap;
+}
+.fg-finished { background:#DCFCE7; color:#166534 !important; border:1px solid #86EFAC; }
+.fg-curing { background:#FFEDD5; color:#C2410C !important; border:1px solid #FDBA74; }
+.fg-review { background:#F3E8FF; color:#7E22CE !important; border:1px solid #D8B4FE; }
+.fg-not-started { background:#E5E7EB; color:#374151 !important; border:1px solid #D1D5DB; }
+
+/* force number/date controls light */
+div[data-baseweb="input"] button,
+div[data-baseweb="input"] [role="button"] {
+    background-color:#FFFFFF !important;
+    color:#111827 !important;
+    border-color:#D1D5DB !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 @st.cache_resource
 def db():
@@ -1696,18 +1725,13 @@ elif page == "Finished Goods":
 
             def cure_status_badge(status):
                 status = str(status or "Curing")
-                badge_styles = {
-                    "Finished": ("#DCFCE7", "#166534", "#86EFAC"),
-                    "Curing": ("#FFEDD5", "#C2410C", "#FDBA74"),
-                    "Needs Review": ("#F3E8FF", "#7E22CE", "#D8B4FE"),
-                    "Not Started": ("#E5E7EB", "#374151", "#D1D5DB"),
-                }
-                bg, fg, border = badge_styles.get(status, ("#E5E7EB", "#374151", "#D1D5DB"))
-                return (
-                    f'<span style="display:inline-block; padding:4px 10px; border-radius:8px; '
-                    f'background:{bg}; color:{fg} !important; border:1px solid {border}; '
-                    f'font-size:0.82rem; font-weight:800; line-height:1; white-space:nowrap;">{status}</span>'
-                )
+                css_class = {
+                    "Finished": "fg-finished",
+                    "Curing": "fg-curing",
+                    "Needs Review": "fg-review",
+                    "Not Started": "fg-not-started",
+                }.get(status, "fg-not-started")
+                return f'<span class="fg-status-badge {css_class}">{status}</span>'
 
             for _, row in display_goods.sort_values(["cure_status", "product_name"]).iterrows():
                 gid = int(row["id"])
@@ -1730,7 +1754,21 @@ elif page == "Finished Goods":
                     st.session_state.finished_goods_mode = "delete"
                     st.rerun()
 
-                st.markdown("<hr style='margin: 0.35rem 0; border: none; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
+                quick_cols = st.columns([0.9, 0.9, 0.9, 0.9, 4.4])
+                if quick_cols[0].button("Not Started", key=f"fg_not_started_{gid}"):
+                    update_row("finished_goods", gid, {"cure_status": "Not Started"})
+                    st.rerun()
+                if quick_cols[1].button("Curing", key=f"fg_curing_{gid}"):
+                    update_row("finished_goods", gid, {"cure_status": "Curing"})
+                    st.rerun()
+                if quick_cols[2].button("Finished", key=f"fg_finished_{gid}"):
+                    update_row("finished_goods", gid, {"cure_status": "Finished"})
+                    st.rerun()
+                if quick_cols[3].button("Needs Review", key=f"fg_review_{gid}"):
+                    update_row("finished_goods", gid, {"cure_status": "Needs Review"})
+                    st.rerun()
+
+                st.markdown("<hr style='margin: 0.55rem 0; border: none; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
 
     elif st.session_state.finished_goods_mode in ["add", "edit"]:
         selected_id = st.session_state.selected_finished_good_id
@@ -1753,6 +1791,14 @@ elif page == "Finished Goods":
                 except Exception:
                     return fallback
 
+            def parse_date_text(value, fallback):
+                try:
+                    if value is None or str(value).strip() == "":
+                        return fallback
+                    return pd.to_datetime(str(value).strip()).date()
+                except Exception:
+                    return fallback
+
             with st.form("finished_goods_edit_form"):
                 c1, c2, c3 = st.columns(3)
                 product_name = c1.text_input("Product Name", value=str(selected.get("product_name") or "") if is_edit else "")
@@ -1766,16 +1812,29 @@ elif page == "Finished Goods":
                 cost_per_item = c5.number_input("Cost Per Item", min_value=0.0, step=0.01, value=float(selected.get("cost_per_item") or 0) if is_edit else 0.0)
                 retail_price = c6.number_input("Retail Price", min_value=0.0, step=0.01, value=float(selected.get("retail_price") or 0) if is_edit else 0.0)
 
-                c7, c8, c9 = st.columns(3)
                 current_status = selected.get("cure_status") if is_edit and selected.get("cure_status") in cure_status_options else "Curing"
-                cure_status = c7.selectbox("Cure Status", cure_status_options, index=cure_status_options.index(current_status))
-                cure_days = c8.number_input("Cure Days", min_value=0, step=1, value=int(selected.get("cure_days") or 0) if is_edit else 0)
-                cure_start_date = c9.date_input("Cure Start Date", value=as_date(selected.get("cure_start_date") if is_edit else None))
+                cure_status = st.radio(
+                    "Cure Status",
+                    cure_status_options,
+                    index=cure_status_options.index(current_status),
+                    horizontal=True
+                )
 
-                calculated_cure_date = cure_start_date + timedelta(days=int(cure_days or 0))
+                c7, c8, c9 = st.columns(3)
+                cure_days = c7.number_input("Cure Days", min_value=0, step=1, value=int(selected.get("cure_days") or 0) if is_edit else 0)
+                default_start = as_date(selected.get("cure_start_date") if is_edit else None)
+                cure_start_text = c8.text_input("Cure Start Date", value=str(default_start), help="Use YYYY-MM-DD. This avoids the dark calendar popup.")
+                start_for_calc = parse_date_text(cure_start_text, default_start)
+                calculated_cure_date = start_for_calc + timedelta(days=int(cure_days or 0))
+                default_ready = as_date(selected.get("cure_date") if is_edit else calculated_cure_date, calculated_cure_date)
+                cure_date_text = c9.text_input("Ready / Cure Date", value=str(default_ready), help="Use YYYY-MM-DD, or match the calculated date.")
+
+                cure_start_date = parse_date_text(cure_start_text, default_start)
+                cure_date = parse_date_text(cure_date_text, calculated_cure_date)
+
                 c10, c11 = st.columns(2)
-                cure_date = c10.date_input("Ready / Cure Date", value=as_date(selected.get("cure_date") if is_edit else calculated_cure_date, calculated_cure_date))
-                c11.metric("Calculated From Cure Days", str(calculated_cure_date))
+                c10.metric("Calculated From Cure Days", str(calculated_cure_date))
+                c11.markdown(f"**Selected Status:** {cure_status_badge(cure_status)}", unsafe_allow_html=True)
 
                 notes = st.text_area("Notes", value=str(selected.get("notes") or "") if is_edit else "")
                 save = st.form_submit_button("Save Finished Goods Line")
