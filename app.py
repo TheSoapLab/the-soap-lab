@@ -580,26 +580,44 @@ NAV = {
     "Settings": ["My Settings"],
 }
 
+# v2.0.2: visible top navigation like the mockup
 if "active_section" not in st.session_state:
     st.session_state.active_section = "Dashboard"
 
-active_section = st.radio(
-    "Main Navigation",
-    list(NAV.keys()),
-    horizontal=True,
-    index=list(NAV.keys()).index(st.session_state.active_section) if st.session_state.active_section in NAV else 0,
-    label_visibility="collapsed",
-)
-st.session_state.active_section = active_section
+st.markdown('<div class="soap-nav-wrap">', unsafe_allow_html=True)
+nav_cols = st.columns(len(NAV))
+for i, section_name in enumerate(NAV.keys()):
+    is_active = st.session_state.active_section == section_name
+    label = f"✓ {section_name}" if is_active else section_name
+    if nav_cols[i].button(label, key=f"top_nav_{section_name}", use_container_width=True):
+        st.session_state.active_section = section_name
+        st.session_state.active_subpage = NAV[section_name][0]
+        st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
 
+active_section = st.session_state.active_section
 subpages = NAV[active_section]
+
+if "active_subpage" not in st.session_state or st.session_state.active_subpage not in subpages:
+    st.session_state.active_subpage = subpages[0]
+
 if len(subpages) > 1:
-    page = st.sidebar.radio(active_section, subpages)
+    st.markdown('<div class="soap-subnav-label">' + active_section + '</div>', unsafe_allow_html=True)
+    page = st.radio(
+        "Sub Navigation",
+        subpages,
+        horizontal=True,
+        index=subpages.index(st.session_state.active_subpage) if st.session_state.active_subpage in subpages else 0,
+        label_visibility="collapsed",
+        key=f"subnav_{active_section}",
+    )
+    st.session_state.active_subpage = page
 else:
     page = subpages[0]
+    st.session_state.active_subpage = page
 
 st.sidebar.title("The Soap Lab")
-st.sidebar.caption("v2.0.0")
+st.sidebar.caption("v2.0.2")
 st.sidebar.markdown("### Quick Actions")
 if st.sidebar.button("+ New Recipe", use_container_width=True):
     st.session_state.active_section = "Products"
