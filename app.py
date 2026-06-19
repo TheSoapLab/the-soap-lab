@@ -279,6 +279,74 @@ small, .caption, [data-testid="stCaptionContainer"] * {{
     color: {PINK_DARK} !important;
 }}
 
+
+/* v2.0.3 EXACT MOCKUP-STYLE NAVIGATION */
+[data-testid="stHeader"] {{ display: none !important; }}
+.block-container {{ padding-top: 1.15rem !important; max-width: 1600px !important; }}
+.soap-app-shell-top {{
+    background: linear-gradient(90deg, #A78BFA 0%, #8B5CF6 55%, #A78BFA 100%);
+    min-height: 74px;
+    border-radius: 0 0 0 0;
+    margin: -1.15rem -3.8rem 1.35rem -3.8rem;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    box-shadow: 0 10px 30px rgba(91,33,182,.22);
+}}
+.soap-app-shell-top * {{ color: #FFFFFF !important; text-decoration: none !important; }}
+.soap-brand-block {{ display:flex; align-items:center; gap:10px; min-width:220px; }}
+.soap-logo-mark {{ font-size: 2.1rem; line-height:1; filter: drop-shadow(0 2px 8px rgba(0,0,0,.10)); }}
+.soap-brand-script {{ font-size: 1.8rem; font-weight: 850; letter-spacing: -.04em; font-family: "Segoe Script", "Brush Script MT", cursive; white-space: nowrap; }}
+.soap-main-nav {{ display:flex; align-items:center; gap: 6px; flex: 1; }}
+.soap-nav-item {{
+    display:inline-flex; align-items:center; gap:7px;
+    padding: 11px 14px; border-radius: 10px;
+    font-weight: 800; font-size: .92rem;
+    opacity: .95; transition: all .15s ease;
+}}
+.soap-nav-item:hover, .soap-nav-item.active {{ background: rgba(255,255,255,.16); box-shadow: inset 0 0 0 1px rgba(255,255,255,.13); }}
+.soap-nav-icon {{ font-size:1.05rem; }}
+.soap-chevron {{ font-size:.75rem; opacity:.78; margin-left:2px; }}
+.soap-top-search {{
+    min-width: 215px; background: rgba(255,255,255,.88);
+    color: #6D5B95 !important; border-radius: 9px;
+    padding: 12px 14px; font-weight:700; font-size:.88rem;
+    display:flex; justify-content:space-between; align-items:center;
+}}
+.soap-top-search span {{ color:#7C3AED !important; }}
+.soap-user-pill {{ width:34px;height:34px;border-radius:999px;background:rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-weight:900; }}
+.soap-subnav-wrap {{
+    background:#FFFFFF; border:1px solid #E8E1FF; border-radius:14px;
+    padding: 8px; margin: -5px 0 18px 0;
+    box-shadow: 0 8px 24px rgba(91,33,182,.06);
+    display:flex; gap:8px; flex-wrap:wrap;
+}}
+.soap-subnav-item {{
+    padding: 9px 13px; border-radius:10px;
+    color:#5B21B6 !important; font-weight:800; text-decoration:none !important;
+}}
+.soap-subnav-item:hover, .soap-subnav-item.active {{ background:#EDE9FE; }}
+section[data-testid="stSidebar"] {{
+    background: linear-gradient(180deg, #FFFFFF 0%, #FBF8FF 100%) !important;
+    border-right: 1px solid #E8E1FF !important;
+    box-shadow: 8px 0 24px rgba(91,33,182,.035);
+}}
+section[data-testid="stSidebar"] .stButton button {{
+    background:#FFFFFF !important; color:#3B2B66 !important;
+    border:1px solid #E8E1FF !important; border-radius:10px !important;
+    box-shadow: 0 3px 12px rgba(91,33,182,.045) !important;
+}}
+section[data-testid="stSidebar"] .stButton button:hover {{ background:#F3E8FF !important; border-color:#C4B5FD !important; }}
+.stButton button {{ border-radius: 10px !important; }}
+div[data-testid="stMetric"] {{ border: 1px solid #E8E1FF !important; box-shadow: 0 10px 28px rgba(91,33,182,.055) !important; }}
+.fg-status-badge {{ border-radius: 999px !important; padding: 5px 12px !important; }}
+@media (max-width: 1150px) {{
+    .soap-app-shell-top {{ flex-wrap: wrap; margin-left:-1rem; margin-right:-1rem; }}
+    .soap-main-nav {{ order: 3; flex-basis: 100%; overflow-x:auto; }}
+    .soap-top-search {{ flex:1; min-width:160px; }}
+}}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -563,12 +631,6 @@ def cure_status_badge(status):
     }.get(status, "fg-not-started")
     return f'<span class="fg-status-badge {css_class}">{status}</span>'
 
-st.markdown(f"""
-<div class="soap-topbar">
-  <div class="soap-brand">⚗️ The Soap Lab</div>
-  <div style="margin-top:4px;font-size:0.95rem;opacity:0.90;">Clean business dashboard for soap production, inventory, curing, products, and sales.</div>
-</div>
-""", unsafe_allow_html=True)
 
 NAV = {
     "Dashboard": ["Dashboard"],
@@ -580,44 +642,63 @@ NAV = {
     "Settings": ["My Settings"],
 }
 
-# v2.0.2: visible top navigation like the mockup
+# v2.0.3: query-param driven top navigation that visually matches the lavender SaaS mockup.
+try:
+    qp_section = st.query_params.get("section")
+    qp_page = st.query_params.get("page")
+except Exception:
+    qp_section = None
+    qp_page = None
+
 if "active_section" not in st.session_state:
     st.session_state.active_section = "Dashboard"
-
-st.markdown('<div class="soap-nav-wrap">', unsafe_allow_html=True)
-nav_cols = st.columns(len(NAV))
-for i, section_name in enumerate(NAV.keys()):
-    is_active = st.session_state.active_section == section_name
-    label = f"✓ {section_name}" if is_active else section_name
-    if nav_cols[i].button(label, key=f"top_nav_{section_name}", use_container_width=True):
-        st.session_state.active_section = section_name
-        st.session_state.active_subpage = NAV[section_name][0]
-        st.rerun()
-st.markdown('</div>', unsafe_allow_html=True)
+if qp_section in NAV:
+    st.session_state.active_section = qp_section
 
 active_section = st.session_state.active_section
 subpages = NAV[active_section]
 
 if "active_subpage" not in st.session_state or st.session_state.active_subpage not in subpages:
     st.session_state.active_subpage = subpages[0]
+if qp_page in subpages:
+    st.session_state.active_subpage = qp_page
+
+page = st.session_state.active_subpage
+
+def nav_url(section, page_name=None):
+    page_name = page_name or NAV[section][0]
+    return f"?section={section.replace(' ', '+')}&page={page_name.replace(' ', '+').replace('/', '%2F')}"
+
+nav_items_html = "".join([
+    f'<a class="soap-nav-item {"active" if active_section == sec else ""}" href="{nav_url(sec)}">'
+    f'<span class="soap-nav-icon">{icon}</span>{sec}<span class="soap-chevron">⌄</span></a>'
+    for sec, icon in [
+        ("Dashboard", "⌂"), ("Production", "⚗"), ("Inventory", "▣"),
+        ("Products", "□"), ("Sales", "$"), ("Reports", "▥"), ("Settings", "⚙")
+    ]
+])
+
+st.markdown(f"""
+<div class="soap-app-shell-top">
+  <div class="soap-brand-block">
+    <div class="soap-logo-mark">⚗</div>
+    <div class="soap-brand-script">The Soap Lab</div>
+  </div>
+  <nav class="soap-main-nav">{nav_items_html}</nav>
+  <div class="soap-top-search">Search everything... <span>⌕</span></div>
+  <div class="soap-user-pill">TS</div>
+</div>
+""", unsafe_allow_html=True)
 
 if len(subpages) > 1:
-    st.markdown('<div class="soap-subnav-label">' + active_section + '</div>', unsafe_allow_html=True)
-    page = st.radio(
-        "Sub Navigation",
-        subpages,
-        horizontal=True,
-        index=subpages.index(st.session_state.active_subpage) if st.session_state.active_subpage in subpages else 0,
-        label_visibility="collapsed",
-        key=f"subnav_{active_section}",
-    )
-    st.session_state.active_subpage = page
-else:
-    page = subpages[0]
-    st.session_state.active_subpage = page
+    sub_items_html = "".join([
+        f'<a class="soap-subnav-item {"active" if page == sub else ""}" href="{nav_url(active_section, sub)}">{sub}</a>'
+        for sub in subpages
+    ])
+    st.markdown(f'<div class="soap-subnav-wrap">{sub_items_html}</div>', unsafe_allow_html=True)
 
 st.sidebar.title("The Soap Lab")
-st.sidebar.caption("v2.0.2")
+st.sidebar.caption("v2.0.3")
 st.sidebar.markdown("### Quick Actions")
 if st.sidebar.button("+ New Recipe", use_container_width=True):
     st.session_state.active_section = "Products"
