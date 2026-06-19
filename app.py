@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
@@ -651,6 +652,52 @@ def cure_status_badge(status):
     return f'<span class="fg-status-badge {css_class}">{status}</span>'
 
 
+def escape_html(value):
+    return (str(value or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;"))
+
+def print_view(title, html_body, height=520):
+    safe_title = escape_html(title)
+    html = """
+    <div style="font-family:Arial, sans-serif;">
+      <button onclick="window.print()" style="background:#ffffff;border:1px solid #d1d5db;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;margin-bottom:10px;">
+        Print this view
+      </button>
+      <div id="print-area" style="background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:20px;">
+        <h2 style="margin:0 0 12px 0;color:#111827;">{safe_title}</h2>
+        {html_body}
+      </div>
+    </div>
+    <style>
+      @media print {{
+        body * {{ visibility: hidden !important; }}
+        #print-area, #print-area * {{ visibility: visible !important; }}
+        #print-area {{ position:absolute; left:0; top:0; width:100%; border:none !important; }}
+        button {{ display:none !important; }}
+      }}
+      table {{ width:100%; border-collapse:collapse; font-size:13px; }}
+      th, td {{ border:1px solid #e5e7eb; padding:7px; text-align:left; vertical-align:top; }}
+      th {{ background:#f9fafb; color:#111827; }}
+      .meta {{ display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:8px 18px; margin-bottom:14px; }}
+      .box {{ border:1px solid #e5e7eb; border-radius:10px; padding:10px; margin:10px 0; }}
+    </style>
+    """.format(safe_title=safe_title, html_body=html_body)
+    components.html(html, height=height, scrolling=True)
+
+def dataframe_to_print_table(pdf, columns):
+    if pdf is None or pdf.empty:
+        return "<p>No records to print.</p>"
+    header = "".join(["<th>{}</th>".format(escape_html(c)) for c in columns])
+    rows = []
+    for _, r in pdf.iterrows():
+        rows.append("<tr>" + "".join(["<td>{}</td>".format(escape_html(r.get(c, ""))) for c in columns]) + "</tr>")
+    return "<table><thead><tr>{}</tr></thead><tbody>{}</tbody></table>".format(header, "".join(rows))
+
+
 st.markdown("""
 <style>
 
@@ -920,6 +967,20 @@ elif page == "Inventory":
             c2.metric("Inventory Value", f"${display_df['inventory_value'].sum():.2f}")
             c3.metric("Low Stock Items", int((display_df["stock_status"] == "LOW").sum()))
             c4.metric("All Items", len(df))
+
+            with st.expander("Print / Export Inventory", expanded=False):
+                export_cols = [c for c in ["item_name", "category", "supplier", "current_quantity", "unit", "reorder_point", "cost_per_unit", "inventory_value"] if c in display_df.columns]
+                st.download_button(
+                    "Download Inventory CSV",
+                    display_df[export_cols].to_csv(index=False).encode("utf-8"),
+                    file_name="soap_lab_inventory.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+                if st.button("Show Printable Inventory", key="print_inventory_view", use_container_width=True):
+                    st.session_state.show_print_inventory = not st.session_state.get("show_print_inventory", False)
+                if st.session_state.get("show_print_inventory", False):
+                    print_view("The Soap Lab Inventory List", dataframe_to_print_table(display_df, export_cols), height=520)
 
             st.markdown("### Inventory Items")
 
@@ -2064,7 +2125,34 @@ elif page == "Batch Production":
             st.rerun()
 
         ingredients = "\n".join([f"- {x.item_name}: {x.amount_used} {x.unit_line}" for x in lines.itertuples()]) if not lines.empty else ""
-        st.text_area("Printable Batch Card", value=f"THE SOAP LAB BATCH CARD\n\nBatch: {batch}\nRecipe: {r['recipe_name']}\nDate Made: {made_date}\nReady Date: {cure_date}\nManual Cure Status: {cure_status}\nQuantity: {qty}\nBatch Cost: ${total:.2f}\nCost Per Item: ${cpi:.2f}\n\nIngredients:\n{ingredients}\n\nNotes:\n{notes}", height=350)
+        batch_card_text = f"THE SOAP LAB BATCH CARD\n\nBatch: {batch}\nRecipe: {r['recipe_name']}\nDate Made: {made_date}\nReady Date: {cure_date}\nManual Cure Status: {cure_status}\nQuantity: {qty}\nBatch Cost: ${total:.2f}\nCost Per Item: ${cpi:.2f}\n\nIngredients:\n{ingredients}\n\nNotes:\n{notes}"
+        st.text_area("Printable Batch Card", value=batch_card_text, height=350)
+        with st.expander("Print / Export Batch Card", expanded=False):
+            st.download_button(
+                "Download Batch Card TXT",
+                batch_card_text.encode("utf-8"),
+                file_name=f"batch_card_{str(batch).replace(' ', '_')}.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+            ingredient_rows = "".join([f"<tr><td>{escape_html(x.item_name)}</td><td>{escape_html(x.amount_used)}</td><td>{escape_html(x.unit_line)}</td></tr>" for x in lines.itertuples()]) if not lines.empty else "<tr><td colspan='3'>No ingredients added.</td></tr>"
+            card_html = f"""
+            <div class='meta'>
+              <div><b>Batch #:</b> {escape_html(batch)}</div>
+              <div><b>Recipe:</b> {escape_html(r['recipe_name'])}</div>
+              <div><b>Date Made:</b> {escape_html(made_date)}</div>
+              <div><b>Ready Date:</b> {escape_html(cure_date)}</div>
+              <div><b>Status:</b> {escape_html(cure_status)}</div>
+              <div><b>Quantity:</b> {escape_html(qty)}</div>
+              <div><b>Batch Cost:</b> ${total:.2f}</div>
+              <div><b>Cost Per Item:</b> ${cpi:.2f}</div>
+            </div>
+            <h3>Ingredients</h3>
+            <table><thead><tr><th>Ingredient</th><th>Amount</th><th>Unit</th></tr></thead><tbody>{ingredient_rows}</tbody></table>
+            <div class='box'><b>Notes:</b><br>{escape_html(notes).replace(chr(10), '<br>')}</div>
+            <div class='box'><b>Quality Check:</b><br>Appearance: ____________ &nbsp;&nbsp; Scent: ____________ &nbsp;&nbsp; Weight: ____________</div>
+            """
+            print_view("The Soap Lab Batch Card", card_html, height=650)
 
 elif page == "Finished Goods":
     st.title("Finished Goods Inventory")
@@ -2182,6 +2270,20 @@ elif page == "Finished Goods":
         if display_goods.empty:
             st.info("No finished goods found for that search/filter.")
         else:
+            with st.expander("Print / Export Finished Goods", expanded=False):
+                export_cols = [c for c in ["product_name", "product_type", "batch_number", "quantity_on_hand", "cure_days", "cure_date", "cure_status", "cost_per_item", "retail_price", "total_value"] if c in display_goods.columns]
+                st.download_button(
+                    "Download Finished Goods CSV",
+                    display_goods[export_cols].to_csv(index=False).encode("utf-8"),
+                    file_name="soap_lab_finished_goods.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+                if st.button("Show Printable Finished Goods", key="print_finished_goods_view", use_container_width=True):
+                    st.session_state.show_print_finished_goods = not st.session_state.get("show_print_finished_goods", False)
+                if st.session_state.get("show_print_finished_goods", False):
+                    print_view("The Soap Lab Finished Goods", dataframe_to_print_table(display_goods, export_cols), height=520)
+
             st.markdown("### Finished Goods Lines")
             header = st.columns([1.65, 0.95, 0.65, 0.8, 0.9, 1, 0.8, 1.2, 0.7, 0.7])
             header[0].markdown("**Product**")
@@ -2488,6 +2590,20 @@ elif page == "Cure Tracking":
         if show.empty:
             st.info("No cure tracking items found for that status.")
         else:
+            with st.expander("Print / Export Cure Tracking", expanded=False):
+                export_cols = [c for c in ["product_name", "quantity_on_hand", "cure_status", "cure_days", "cure_start_date", "cure_date", "notes"] if c in show.columns]
+                st.download_button(
+                    "Download Cure Tracking CSV",
+                    show[export_cols].to_csv(index=False).encode("utf-8"),
+                    file_name="soap_lab_cure_tracking.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+                if st.button("Show Printable Cure Tracking", key="print_cure_tracking_view", use_container_width=True):
+                    st.session_state.show_print_cure_tracking = not st.session_state.get("show_print_cure_tracking", False)
+                if st.session_state.get("show_print_cure_tracking", False):
+                    print_view("The Soap Lab Cure Tracking", dataframe_to_print_table(show, export_cols), height=520)
+
             header = st.columns([2, 0.9, 1.1, 0.8, 1, 1, 1.2, 0.9])
             header[0].markdown("**Product**")
             header[1].markdown("**Qty Available**")
