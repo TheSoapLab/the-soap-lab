@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
 
-# The Soap Lab v1.3.9 — Finished Goods status sync + cure tracking display fix
+# The Soap Lab v1.4.1 — Cured status persistence + cure tracking remove
 st.set_page_config(page_title="The Soap Lab", layout="wide")
 PINK = "#D63384"
 PINK_DARK = "#B91E63"
@@ -184,6 +184,14 @@ small, .caption, [data-testid="stCaptionContainer"] * {{
     color: {MUTED} !important;
 }}
 
+
+/* Lighten number stepper controls so they do not show as black boxes */
+[data-testid="stNumberInput"] button,
+[data-testid="stNumberInput"] button * {
+    background-color: #FFFFFF !important;
+    color: #111827 !important;
+    border-color: #D1D5DB !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -285,6 +293,24 @@ div[data-testid="stNumberInput"] button * {
 """, unsafe_allow_html=True)
 
 
+
+
+st.markdown("""
+<style>
+/* v1.4.0: keep number stepper buttons and small controls light/readable */
+[data-testid="stNumberInput"] button,
+[data-testid="stNumberInput"] button * {
+    background-color: #FFFFFF !important;
+    color: #111827 !important;
+    border-color: #D1D5DB !important;
+}
+[data-testid="stNumberInput"] input {
+    background-color: #FFFFFF !important;
+    color: #111827 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 @st.cache_resource
 def db():
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -327,20 +353,52 @@ def update_row(table, row_id, data):
 def delete_row(table, row_id):
     return supabase.table(table).delete().eq("id", row_id).execute()
 
-def update_finished_good_status(row_id, status, batch_id=None):
-    """Update cure status only. This never deletes or removes finished goods inventory.
-    It also mirrors the status to the matching batch when possible so Cure Tracking stays synced.
-    """
-    try:
-        payload = {"cure_status": str(status)}
-        res = update_row("finished_goods", int(row_id), payload)
+def normalize_cure_status(value):
+    allowed = ["Not Started", "Curing", "Cured", "Needs Review"]
+    value = str(value or "").strip()
+    v = value.lower().replace("_", " ").strip()
+    if v in ["not started", "notstarted"]:
+        return "Not Started"
+    if v == "curing":
+        return "Curing"
+    if v in ["cured", "finished", "complete", "completed", "ready"]:
+        return "Cured"
+    if v in ["needs review", "review"]:
+        return "Needs Review"
+    return "Curing"
 
-        # Keep batch status synced, but do not fail the finished goods update if batches is missing the column.
+def update_finished_good_status(row_id, status, batch_id=None, batch_number=None):
+    """Update cure status only. Never deletes or hides finished goods inventory.
+    Also mirrors the status to matching batch rows where possible.
+    """
+    status = normalize_cure_status(status)
+    payload = {"cure_status": status, "status": status}
+    try:
+        # Try the full payload first. If an older database does not have status, fall back to cure_status only.
+        try:
+            res = supabase.table("finished_goods").update(payload).eq("id", int(row_id)).execute()
+        except Exception:
+            res = supabase.table("finished_goods").update({"cure_status": status}).eq("id", int(row_id)).execute()
+
+        # Keep batch status synced for Cure Tracking/reports if batches has this column.
+        batch_payload = {"cure_status": status, "status": status}
         if batch_id not in [None, "", "nan"]:
             try:
-                update_row("batches", int(float(batch_id)), payload)
+                supabase.table("batches").update(batch_payload).eq("id", int(float(batch_id))).execute()
             except Exception:
-                pass
+                try:
+                    supabase.table("batches").update({"cure_status": status}).eq("id", int(float(batch_id))).execute()
+                except Exception:
+                    pass
+        if batch_number not in [None, "", "nan"]:
+            try:
+                supabase.table("batches").update(batch_payload).eq("batch_number", str(batch_number)).execute()
+            except Exception:
+                try:
+                    supabase.table("batches").update({"cure_status": status}).eq("batch_number", str(batch_number)).execute()
+                except Exception:
+                    pass
+
         return True, res
     except Exception as e:
         st.error("Could not update cure status. Check Supabase column/policy for finished_goods.cure_status.")
@@ -372,6 +430,7 @@ def recipe_row(recipe_id):
 def cure_status_badge(status):
     status = str(status or "Curing")
     css_class = {
+        "Cured": "fg-finished",
         "Finished": "fg-finished",
         "Curing": "fg-curing",
         "Needs Review": "fg-review",
@@ -380,7 +439,7 @@ def cure_status_badge(status):
     return f'<span class="fg-status-badge {css_class}">{status}</span>'
 
 st.sidebar.title("The Soap Lab")
-st.sidebar.caption("v1.3.9")
+st.sidebar.caption("v1.4.1")
 main_pages = [
     "Dashboard",
     "Recipes",
@@ -1599,7 +1658,7 @@ elif page == "Can I Make This?":
 elif page == "Batch Production":
     st.title("Batch Production")
     recipes = df("recipes")
-    cure_status_options = ["Not Started", "Curing", "Finished", "Needs Review"]
+    cure_status_options = ["Not Started", "Curing", "Cured", "Needs Review"]
 
     if recipes.empty:
         st.warning("Create a recipe first.")
@@ -1684,7 +1743,7 @@ elif page == "Finished Goods":
     goods = df("finished_goods")
     batches = df("batches")
     recipes = df("recipes")
-    cure_status_options = ["Not Started", "Curing", "Finished", "Needs Review"]
+    cure_status_options = ["Not Started", "Curing", "Cured", "Needs Review"]
 
     if "finished_goods_mode" not in st.session_state:
         st.session_state.finished_goods_mode = "list"
@@ -1731,7 +1790,9 @@ elif page == "Finished Goods":
                     gdf["cure_days"] = gdf["cure_days"].fillna(gdf["cure_days_batch"])
         if "batch_number" not in gdf.columns:
             gdf["batch_number"] = ""
-        gdf["cure_status"] = gdf["cure_status"].fillna("Curing")
+        if "status" in gdf.columns:
+            gdf["cure_status"] = gdf["cure_status"].where(gdf["cure_status"].notna() & (gdf["cure_status"].astype(str).str.strip() != ""), gdf["status"])
+        gdf["cure_status"] = gdf["cure_status"].apply(normalize_cure_status)
         gdf["cure_days"] = pd.to_numeric(gdf["cure_days"], errors="coerce").fillna(0).astype(int)
         gdf["quantity_on_hand"] = pd.to_numeric(gdf["quantity_on_hand"], errors="coerce").fillna(0)
         gdf["cost_per_item"] = pd.to_numeric(gdf["cost_per_item"], errors="coerce").fillna(0)
@@ -1779,7 +1840,7 @@ elif page == "Finished Goods":
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Items Shown", len(display_goods))
-        c2.metric("Finished", int((display_goods["cure_status"] == "Finished").sum()))
+        c2.metric("Cured", int((display_goods["cure_status"] == "Cured").sum()))
         c3.metric("Curing", int((display_goods["cure_status"] == "Curing").sum()))
         c4.metric("Inventory Value", f"${display_goods['total_value'].sum():.2f}")
 
@@ -1811,6 +1872,7 @@ elif page == "Finished Goods":
                 cols[5].markdown(cure_status_badge(current_status), unsafe_allow_html=True)
                 cols[6].markdown(f"${float(row.get('total_value') or 0):.2f}")
 
+                # Reliable quick status save. Select the status, then click Update.
                 quick_status = cols[7].selectbox(
                     "Quick Status",
                     cure_status_options,
@@ -1818,12 +1880,12 @@ elif page == "Finished Goods":
                     key=f"quick_status_{gid}",
                     label_visibility="collapsed"
                 )
-                if quick_status != current_status:
-                    if cols[7].button("Update", key=f"update_status_{gid}", use_container_width=True):
-                        ok, _ = update_finished_good_status(gid, quick_status, row.get("batch_id"))
-                        if ok:
-                            st.session_state.active_finished_goods_status = "All"
-                            st.rerun()
+                if cols[7].button("Update", key=f"quick_status_update_{gid}", use_container_width=True):
+                    ok, _ = update_finished_good_status(gid, quick_status, row.get("batch_id"), row.get("batch_number"))
+                    if ok:
+                        st.session_state.active_finished_goods_status = "All"
+                        st.toast(f"Updated {row.get('product_name') or 'finished good'} to {quick_status}")
+                        st.rerun()
 
                 if cols[8].button("Edit", key=f"edit_finished_good_{gid}"):
                     st.session_state.selected_finished_good_id = gid
@@ -1919,6 +1981,8 @@ elif page == "Finished Goods":
                         "cost_per_item": cost_per_item,
                         "retail_price": retail_price,
                         "cure_status": cure_status,
+                        "status": cure_status,
+                        "hide_from_cure_tracking": False,
                         "cure_days": int(cure_days or 0),
                         "cure_start_date": str(cure_start_date),
                         "cure_date": str(cure_date),
@@ -1927,12 +1991,8 @@ elif page == "Finished Goods":
                     try:
                         if is_edit:
                             update_row("finished_goods", int(selected_id), data)
-                            # Mirror only the status to batches for Cure Tracking sync.
-                            if batch_id_value not in [None, "", "nan"]:
-                                try:
-                                    update_row("batches", int(float(batch_id_value)), {"cure_status": cure_status})
-                                except Exception:
-                                    pass
+                            # Force status persistence and sync after the full save.
+                            update_finished_good_status(int(selected_id), cure_status, batch_id_value, selected.get("batch_number"))
                         else:
                             insert_row("finished_goods", data)
                         st.session_state.active_finished_goods_status = "All"
@@ -1999,20 +2059,26 @@ elif page == "Cure Tracking":
     if goods.empty:
         st.info("No batches are in cure tracking yet.")
     else:
-        for col in ["product_name", "cure_status", "cure_days", "cure_start_date", "cure_date", "quantity_on_hand", "notes"]:
+        for col in ["product_name", "cure_status", "cure_days", "cure_start_date", "cure_date", "quantity_on_hand", "notes", "hide_from_cure_tracking"]:
             if col not in goods.columns:
-                goods[col] = "" if col in ["product_name", "cure_status", "cure_start_date", "cure_date", "notes"] else 0
-        goods["cure_status"] = goods["cure_status"].fillna("Curing").replace("", "Curing")
+                goods[col] = "" if col in ["product_name", "cure_status", "cure_start_date", "cure_date", "notes"] else False if col == "hide_from_cure_tracking" else 0
+        if "status" in goods.columns:
+            goods["cure_status"] = goods["cure_status"].where(goods["cure_status"].notna() & (goods["cure_status"].astype(str).str.strip() != ""), goods["status"])
+        goods["cure_status"] = goods["cure_status"].apply(normalize_cure_status)
         goods["cure_days"] = pd.to_numeric(goods["cure_days"], errors="coerce").fillna(0).astype(int)
         goods["quantity_on_hand"] = pd.to_numeric(goods["quantity_on_hand"], errors="coerce").fillna(0).astype(int)
-        status = st.radio("Show Status", ["All", "Not Started", "Curing", "Finished", "Needs Review"], horizontal=True)
+        goods["hide_from_cure_tracking"] = goods["hide_from_cure_tracking"].fillna(False).astype(bool)
+        show_hidden = st.checkbox("Show removed items", value=False)
+        if not show_hidden:
+            goods = goods[goods["hide_from_cure_tracking"] == False]
+        status = st.radio("Show Status", ["All", "Not Started", "Curing", "Cured", "Needs Review"], horizontal=True)
         show = goods.copy()
         if status != "All":
             show = show[show["cure_status"] == status]
         if show.empty:
             st.info("No cure tracking items found for that status.")
         else:
-            header = st.columns([2, 0.9, 1.1, 0.8, 1, 1, 1.2])
+            header = st.columns([2, 0.9, 1.1, 0.8, 1, 1, 1.2, 0.9])
             header[0].markdown("**Product**")
             header[1].markdown("**Qty Available**")
             header[2].markdown("**Status**")
@@ -2020,8 +2086,9 @@ elif page == "Cure Tracking":
             header[4].markdown("**Start Date**")
             header[5].markdown("**Ready Date**")
             header[6].markdown("**Notes**")
+            header[7].markdown("**Remove**")
             for _, row in show.sort_values(["cure_status", "product_name"]).iterrows():
-                cols = st.columns([2, 0.9, 1.1, 0.8, 1, 1, 1.2])
+                cols = st.columns([2, 0.9, 1.1, 0.8, 1, 1, 1.2, 0.9])
                 cols[0].markdown(f"**{row.get('product_name') or ''}**")
                 cols[1].markdown(str(int(row.get("quantity_on_hand") or 0)))
                 cols[2].markdown(cure_status_badge(row.get("cure_status") or "Curing"), unsafe_allow_html=True)
@@ -2029,6 +2096,13 @@ elif page == "Cure Tracking":
                 cols[4].markdown(str(row.get("cure_start_date") or "—"))
                 cols[5].markdown(str(row.get("cure_date") or "—"))
                 cols[6].markdown(str(row.get("notes") or ""))
+                if cols[7].button("Remove", key=f"remove_from_cure_{int(row.get("id"))}"):
+                    try:
+                        update_row("finished_goods", int(row.get("id")), {"hide_from_cure_tracking": True})
+                        st.rerun()
+                    except Exception as e:
+                        st.error("Could not remove from Cure Tracking. Run the v1.4.1 SQL first.")
+                        st.code(str(e))
                 st.markdown("<hr style='margin: 0.35rem 0; border: none; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
 
 elif page == "Reports":
