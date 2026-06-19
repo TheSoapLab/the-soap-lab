@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
 
-# The Soap Lab v1.4.1 — Cured status persistence + cure tracking remove
+# The Soap Lab v1.4.3 — Cured status persistence + cure tracking remove
 st.set_page_config(page_title="The Soap Lab", layout="wide")
 PINK = "#D63384"
 PINK_DARK = "#B91E63"
@@ -370,15 +370,33 @@ def normalize_cure_status(value):
 def update_finished_good_status(row_id, status, batch_id=None, batch_number=None):
     """Update cure status only. Never deletes or hides finished goods inventory.
     Also mirrors the status to matching batch rows where possible.
+    Returns False if Supabase/RLS silently refuses the update.
     """
     status = normalize_cure_status(status)
-    payload = {"cure_status": status, "status": status}
+    row_id = int(row_id)
+    payload = {
+        "cure_status": status,
+        "status": status,
+        "hide_from_cure_tracking": False,
+    }
+
     try:
-        # Try the full payload first. If an older database does not have status, fall back to cure_status only.
+        # Update finished_goods. Some Supabase/RLS failures return zero updated rows without a loud error,
+        # so we verify by reading the row back after the update.
         try:
-            res = supabase.table("finished_goods").update(payload).eq("id", int(row_id)).execute()
+            supabase.table("finished_goods").update(payload).eq("id", row_id).execute()
         except Exception:
-            res = supabase.table("finished_goods").update({"cure_status": status}).eq("id", int(row_id)).execute()
+            supabase.table("finished_goods").update({"cure_status": status, "hide_from_cure_tracking": False}).eq("id", row_id).execute()
+
+        verify = supabase.table("finished_goods").select("id,cure_status,status").eq("id", row_id).execute()
+        verified_status = None
+        if verify.data:
+            verified_status = normalize_cure_status(verify.data[0].get("cure_status") or verify.data[0].get("status"))
+
+        if verified_status != status:
+            st.error("Supabase did not save the status change. This usually means the finished_goods UPDATE policy is missing.")
+            st.info("Run the v1.4.3 SQL file in Supabase, then try the status update again.")
+            return False, verify
 
         # Keep batch status synced for Cure Tracking/reports if batches has this column.
         batch_payload = {"cure_status": status, "status": status}
@@ -399,7 +417,7 @@ def update_finished_good_status(row_id, status, batch_id=None, batch_number=None
                 except Exception:
                     pass
 
-        return True, res
+        return True, verify
     except Exception as e:
         st.error("Could not update cure status. Check Supabase column/policy for finished_goods.cure_status.")
         st.code(str(e))
@@ -439,7 +457,7 @@ def cure_status_badge(status):
     return f'<span class="fg-status-badge {css_class}">{status}</span>'
 
 st.sidebar.title("The Soap Lab")
-st.sidebar.caption("v1.4.1")
+st.sidebar.caption("v1.4.3")
 main_pages = [
     "Dashboard",
     "Recipes",
@@ -2101,7 +2119,7 @@ elif page == "Cure Tracking":
                         update_row("finished_goods", int(row.get("id")), {"hide_from_cure_tracking": True})
                         st.rerun()
                     except Exception as e:
-                        st.error("Could not remove from Cure Tracking. Run the v1.4.1 SQL first.")
+                        st.error("Could not remove from Cure Tracking. Run the v1.4.3 SQL first.")
                         st.code(str(e))
                 st.markdown("<hr style='margin: 0.35rem 0; border: none; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
 
