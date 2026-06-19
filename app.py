@@ -3,21 +3,22 @@ import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
 
-# The Soap Lab v1.4.7 — Theme settings + readable finished goods cells
+# The Soap Lab v2.0.0 — Clean navigation, theme refresh, product photo fields
 st.set_page_config(page_title="The Soap Lab", layout="wide")
 
 THEMES = {
-    "Purple": {"accent": "#7C3AED", "dark": "#5B21B6", "soft": "#EDE9FE", "pale": "#FAF7FF", "sidebar": "#F3E8FF", "border": "#DDD6FE"},
-    "Blue": {"accent": "#2563EB", "dark": "#1D4ED8", "soft": "#DBEAFE", "pale": "#F8FBFF", "sidebar": "#EFF6FF", "border": "#BFDBFE"},
-    "Pink": {"accent": "#D63384", "dark": "#B91E63", "soft": "#F8DDE8", "pale": "#FFF7FA", "sidebar": "#FBE7EF", "border": "#F3C6D7"},
-    "Orange": {"accent": "#EA580C", "dark": "#C2410C", "soft": "#FFEDD5", "pale": "#FFF7ED", "sidebar": "#FFF1E6", "border": "#FED7AA"},
+    "Lavender": {"accent": "#7C3AED", "dark": "#5B21B6", "soft": "#EDE9FE", "pale": "#FAF7FF", "sidebar": "#F3E8FF", "border": "#DDD6FE"},
+    "Rose": {"accent": "#BE5B7D", "dark": "#8A3551", "soft": "#FCE7F0", "pale": "#FFF7FA", "sidebar": "#FBE7EF", "border": "#F5C2D7"},
+    "Ocean": {"accent": "#2563EB", "dark": "#1D4ED8", "soft": "#DBEAFE", "pale": "#F8FBFF", "sidebar": "#EFF6FF", "border": "#BFDBFE"},
+    "Forest": {"accent": "#059669", "dark": "#047857", "soft": "#D1FAE5", "pale": "#F7FFFB", "sidebar": "#ECFDF5", "border": "#A7F3D0"},
+    "Citrus": {"accent": "#EA580C", "dark": "#C2410C", "soft": "#FFEDD5", "pale": "#FFF7ED", "sidebar": "#FFF1E6", "border": "#FED7AA"},
     "Red": {"accent": "#DC2626", "dark": "#991B1B", "soft": "#FEE2E2", "pale": "#FFF8F8", "sidebar": "#FEF2F2", "border": "#FECACA"},
 }
 
 if "app_theme" not in st.session_state:
-    st.session_state.app_theme = "Purple"
+    st.session_state.app_theme = "Lavender"
 
-_theme = THEMES.get(st.session_state.app_theme, THEMES["Purple"])
+_theme = THEMES.get(st.session_state.app_theme, THEMES["Lavender"])
 PINK = _theme["accent"]
 PINK_DARK = _theme["dark"]
 PINK_SOFT = _theme["soft"]
@@ -136,18 +137,31 @@ div[data-testid="stNumberInput"] svg {{
     stroke: #111827 !important;
 }}
 
-/* PRIMARY BUTTONS */
+/* CLEAN BUTTON SYSTEM */
 .stButton button,
 .stFormSubmitButton button {{
-    background: {PINK} !important;
-    color: #FFFFFF !important;
+    background: #FFFFFF !important;
+    color: {PINK_DARK} !important;
     border-radius: 10px !important;
-    border: none !important;
+    border: 1px solid {SIDEBAR_BORDER} !important;
     font-weight: 700 !important;
-    padding: 0.6rem 1rem !important;
+    padding: 0.55rem 0.95rem !important;
+    box-shadow: 0 2px 8px rgba(17,24,39,0.04) !important;
 }}
 
 .stButton button:hover,
+.stFormSubmitButton button:hover {{
+    background: {PINK_SOFT} !important;
+    color: {PINK_DARK} !important;
+    border-color: {PINK} !important;
+}}
+
+.stFormSubmitButton button {{
+    background: {PINK} !important;
+    color: #FFFFFF !important;
+    border-color: {PINK} !important;
+}}
+
 .stFormSubmitButton button:hover {{
     background: {PINK_DARK} !important;
     color: #FFFFFF !important;
@@ -207,6 +221,64 @@ small, .caption, [data-testid="stCaptionContainer"] * {{
     color: #111827 !important;
     border-color: #D1D5DB !important;
 }}
+
+/* V2 TOP NAV + CARDS */
+.soap-topbar {
+    background: linear-gradient(90deg, {PINK_DARK} 0%, {PINK} 100%);
+    color: white !important;
+    padding: 18px 24px;
+    border-radius: 18px;
+    margin-bottom: 16px;
+    box-shadow: 0 12px 30px rgba(17,24,39,0.10);
+}
+.soap-topbar * { color: white !important; }
+.soap-brand {
+    font-size: 1.6rem;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+}
+.soap-subtle-card {
+    background: #FFFFFF;
+    border: 1px solid {BORDER};
+    border-radius: 16px;
+    padding: 18px;
+    box-shadow: 0 8px 22px rgba(17,24,39,0.05);
+}
+.soap-action-bar {
+    background: #FFFFFF;
+    border: 1px solid {BORDER};
+    border-radius: 14px;
+    padding: 12px;
+    margin: 10px 0 18px 0;
+}
+.soap-product-card {
+    background: #FFFFFF;
+    border: 1px solid {BORDER};
+    border-radius: 16px;
+    padding: 14px;
+    min-height: 220px;
+    box-shadow: 0 8px 22px rgba(17,24,39,0.05);
+}
+.soap-product-photo {
+    width: 100%;
+    height: 115px;
+    object-fit: cover;
+    border-radius: 12px;
+    background: {PINK_SOFT};
+    border: 1px solid {SIDEBAR_BORDER};
+}
+.soap-placeholder-photo {
+    height: 115px;
+    border-radius: 12px;
+    background: {PINK_SOFT};
+    border: 1px dashed {PINK};
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    color: {PINK_DARK} !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -491,43 +563,121 @@ def cure_status_badge(status):
     }.get(status, "fg-not-started")
     return f'<span class="fg-status-badge {css_class}">{status}</span>'
 
+st.markdown(f"""
+<div class="soap-topbar">
+  <div class="soap-brand">⚗️ The Soap Lab</div>
+  <div style="margin-top:4px;font-size:0.95rem;opacity:0.90;">Clean business dashboard for soap production, inventory, curing, products, and sales.</div>
+</div>
+""", unsafe_allow_html=True)
+
+NAV = {
+    "Dashboard": ["Dashboard"],
+    "Production": ["Batch Production", "Cure Tracking", "Finished Goods"],
+    "Inventory": ["Inventory", "Fragrance Library", "Suppliers", "Categories", "Units"],
+    "Products": ["Recipes", "Product Gallery", "Ingredient Label Generator", "Product Type View", "Can I Make This?", "Recipe Cost Summary"],
+    "Sales": ["POS / Sales"],
+    "Reports": ["Reports"],
+    "Settings": ["My Settings"],
+}
+
+if "active_section" not in st.session_state:
+    st.session_state.active_section = "Dashboard"
+
+active_section = st.radio(
+    "Main Navigation",
+    list(NAV.keys()),
+    horizontal=True,
+    index=list(NAV.keys()).index(st.session_state.active_section) if st.session_state.active_section in NAV else 0,
+    label_visibility="collapsed",
+)
+st.session_state.active_section = active_section
+
+subpages = NAV[active_section]
+if len(subpages) > 1:
+    page = st.sidebar.radio(active_section, subpages)
+else:
+    page = subpages[0]
+
 st.sidebar.title("The Soap Lab")
-st.sidebar.caption("v1.4.7")
-main_pages = [
-    "Dashboard",
-    "Recipes",
-    "Inventory",
-    "Fragrance Library",
-    "Batch Production",
-    "Finished Goods",
-    "Cure Tracking",
-    "Reports",
-    "Ingredient Label Generator",
-    "Product Type View",
-    "Can I Make This?",
-    "Recipe Cost Summary",
-    "POS / Sales",
-]
-settings_pages = ["Suppliers", "Categories", "Units", "My Settings"]
-page = st.sidebar.radio("Go to", main_pages + settings_pages)
+st.sidebar.caption("v2.0.0")
+st.sidebar.markdown("### Quick Actions")
+if st.sidebar.button("+ New Recipe", use_container_width=True):
+    st.session_state.active_section = "Products"
+    st.session_state.recipe_mode = "add"
+    st.rerun()
+if st.sidebar.button("+ New Batch", use_container_width=True):
+    st.session_state.active_section = "Production"
+    st.rerun()
+if st.sidebar.button("+ Add Inventory", use_container_width=True):
+    st.session_state.active_section = "Inventory"
+    st.session_state.inventory_mode = "add"
+    st.rerun()
+st.sidebar.divider()
+st.sidebar.markdown("### Current Theme")
+st.sidebar.write(st.session_state.get("app_theme", "Lavender"))
 
 if page == "Dashboard":
-    st.title("The Soap Lab Dashboard")
+    st.title("Dashboard")
+    st.caption("Welcome back! Here is what is happening in your soap lab today.")
     inv, recipes, batches, goods, sales = df("inventory"), df("recipes"), df("batches"), df("finished_goods"), df("sales")
-    raw_value = 0; finished_value = 0; low = pd.DataFrame()
+    raw_value = 0; finished_value = 0; retail_value = 0; ready_for_sale = 0; curing_count = 0; low_count = 0
     if not inv.empty:
         inv["cost_per_unit"] = inv.apply(cpu, axis=1)
-        raw_value = (inv["current_quantity"].astype(float) * inv["cost_per_unit"]).sum()
-        low = inv[inv["current_quantity"].astype(float) <= inv["reorder_point"].astype(float)]
+        raw_value = (pd.to_numeric(inv.get("current_quantity", 0), errors="coerce").fillna(0) * pd.to_numeric(inv["cost_per_unit"], errors="coerce").fillna(0)).sum()
+        if "reorder_point" in inv.columns:
+            low_count = int((pd.to_numeric(inv["current_quantity"], errors="coerce").fillna(0) <= pd.to_numeric(inv["reorder_point"], errors="coerce").fillna(0)).sum())
     if not goods.empty:
-        finished_value = (goods["quantity_on_hand"].astype(float) * goods["cost_per_item"].astype(float)).sum()
-    c1,c2,c3,c4 = st.columns(4)
-    c1.metric("Raw Inventory Value", f"${raw_value:,.2f}"); c2.metric("Finished Goods Value", f"${finished_value:,.2f}"); c3.metric("Recipes", len(recipes)); c4.metric("Batches", len(batches))
-    st.subheader("Low Stock Alerts")
-    if low.empty:
-        st.success("No low stock alerts right now.")
-    else:
-        st.dataframe(low[["item_name","category","current_quantity","unit","reorder_point"]], use_container_width=True)
+        for col in ["quantity_on_hand", "cost_per_item", "retail_price", "cure_status", "status"]:
+            if col not in goods.columns:
+                goods[col] = 0 if col in ["quantity_on_hand", "cost_per_item", "retail_price"] else ""
+        goods["display_status"] = goods["cure_status"].fillna("").astype(str)
+        if "status" in goods.columns:
+            goods["display_status"] = goods["display_status"].where(goods["display_status"].str.strip() != "", goods["status"].fillna(""))
+        goods["display_status"] = goods["display_status"].apply(normalize_cure_status)
+        qty_series = pd.to_numeric(goods["quantity_on_hand"], errors="coerce").fillna(0)
+        finished_value = (qty_series * pd.to_numeric(goods["cost_per_item"], errors="coerce").fillna(0)).sum()
+        retail_value = (qty_series * pd.to_numeric(goods["retail_price"], errors="coerce").fillna(0)).sum()
+        ready_for_sale = int(qty_series[goods["display_status"] == "Cured"].sum())
+        curing_count = int(qty_series[goods["display_status"] == "Curing"].sum())
+
+    c1,c2,c3,c4,c5,c6 = st.columns(6)
+    c1.metric("Raw Inventory Value", f"${raw_value:,.2f}")
+    c2.metric("Finished Goods Value", f"${finished_value:,.2f}")
+    c3.metric("Retail Value", f"${retail_value:,.2f}")
+    c4.metric("Ready for Sale", ready_for_sale)
+    c5.metric("Currently Curing", curing_count)
+    c6.metric("Low Stock", low_count)
+
+    left, right = st.columns([1.05, 1])
+    with left:
+        st.markdown("### Recent Finished Goods")
+        if goods.empty:
+            st.info("No finished goods yet.")
+        else:
+            show = goods.copy()
+            if "product_name" not in show.columns: show["product_name"] = ""
+            if "batch_number" not in show.columns: show["batch_number"] = show.get("batch_id", "")
+            for _, row in show.tail(6).iterrows():
+                c = st.columns([1.6, .9, .9, .8])
+                c[0].markdown(f"**{row.get('product_name') or 'Product'}**")
+                c[1].write(row.get("batch_number") or "—")
+                c[2].markdown(cure_status_badge(row.get("display_status") or row.get("cure_status") or "Curing"), unsafe_allow_html=True)
+                c[3].write(int(row.get("quantity_on_hand") or 0))
+                st.markdown("<hr style='margin:0.25rem 0;border:none;border-top:1px solid #eee;'>", unsafe_allow_html=True)
+    with right:
+        st.markdown("### Product Snapshot")
+        if goods.empty:
+            st.info("Product photos will appear here once you add finished goods.")
+        else:
+            cards = goods.drop_duplicates(subset=["product_name"]).head(4)
+            cols = st.columns(2)
+            for i, (_, row) in enumerate(cards.iterrows()):
+                with cols[i % 2]:
+                    photo = str(row.get("photo_url") or "").strip() if "photo_url" in row.index else ""
+                    if photo:
+                        st.markdown(f'<div class="soap-product-card"><img class="soap-product-photo" src="{photo}"><h4>{row.get("product_name") or "Product"}</h4><p>{int(row.get("quantity_on_hand") or 0)} available</p></div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<div class="soap-product-card"><div class="soap-placeholder-photo">Product Photo</div><h4>{row.get("product_name") or "Product"}</h4><p>{int(row.get("quantity_on_hand") or 0)} available</p></div>', unsafe_allow_html=True)
 
 elif page == "Inventory":
     st.title("Inventory Manager")
@@ -1825,6 +1975,9 @@ elif page == "Finished Goods":
             "cure_days": 0,
             "cure_start_date": None,
             "cure_date": None,
+            "photo_url": "",
+            "description": "",
+            "sku": "",
         }
         for col, default in defaults.items():
             if col not in gdf.columns:
@@ -1996,6 +2149,9 @@ elif page == "Finished Goods":
                 batch_label = str(selected.get("batch_number") or batch_id_value or "Manual") if is_edit else "Manual"
                 c3.text_input("Batch", value=batch_label, disabled=True)
 
+                photo_url = st.text_input("Product Photo URL", value=str(selected.get("photo_url") or "") if is_edit else "", help="Paste an image URL for now. Later we can add Supabase image upload.")
+                description = st.text_area("Product Description", value=str(selected.get("description") or "") if is_edit else "", height=80)
+
                 c4, c5, c6 = st.columns(3)
                 qty = c4.number_input("Quantity On Hand", min_value=0, step=1, value=int(selected.get("quantity_on_hand") or 0) if is_edit else 0)
                 cost_per_item = c5.number_input("Cost Per Item", min_value=0.0, step=0.01, value=float(selected.get("cost_per_item") or 0) if is_edit else 0.0)
@@ -2042,6 +2198,8 @@ elif page == "Finished Goods":
                         "cure_start_date": str(cure_start_date),
                         "cure_date": str(cure_date),
                         "notes": notes.strip(),
+                        "photo_url": photo_url.strip(),
+                        "description": description.strip(),
                     }
                     try:
                         if is_edit:
@@ -2112,6 +2270,43 @@ elif page == "Finished Goods":
                 st.session_state.finished_goods_mode = "list"
                 st.session_state.selected_finished_good_id = None
                 st.rerun()
+
+elif page == "Product Gallery":
+    st.title("Product Gallery")
+    st.caption("A clean product view with photos, inventory, cure status, and pricing.")
+    goods = df("finished_goods")
+    if goods.empty:
+        st.info("No products yet. Add products from Finished Goods, then add a photo URL in Edit.")
+    else:
+        for col, default in {"product_name":"", "product_type":"", "quantity_on_hand":0, "retail_price":0, "cost_per_item":0, "cure_status":"Curing", "photo_url":"", "description":""}.items():
+            if col not in goods.columns:
+                goods[col] = default
+        goods["quantity_on_hand"] = pd.to_numeric(goods["quantity_on_hand"], errors="coerce").fillna(0)
+        goods["retail_price"] = pd.to_numeric(goods["retail_price"], errors="coerce").fillna(0)
+        goods["cost_per_item"] = pd.to_numeric(goods["cost_per_item"], errors="coerce").fillna(0)
+        search = st.text_input("Search products", placeholder="Search by product name, type, status...")
+        display = goods.copy()
+        if search:
+            term = search.lower()
+            display = display[
+                display["product_name"].fillna("").astype(str).str.lower().str.contains(term) |
+                display["product_type"].fillna("").astype(str).str.lower().str.contains(term) |
+                display["cure_status"].fillna("").astype(str).str.lower().str.contains(term)
+            ]
+        if display.empty:
+            st.info("No products match that search.")
+        else:
+            rows = display.drop_duplicates(subset=["product_name", "product_type"]).reset_index(drop=True)
+            for start_idx in range(0, len(rows), 4):
+                cols = st.columns(4)
+                for col, (_, row) in zip(cols, rows.iloc[start_idx:start_idx+4].iterrows()):
+                    with col:
+                        photo = str(row.get("photo_url") or "").strip()
+                        status = normalize_cure_status(row.get("cure_status") or "Curing")
+                        if photo:
+                            st.markdown(f'<div class="soap-product-card"><img class="soap-product-photo" src="{photo}"><h4>{row.get("product_name") or "Product"}</h4><p>{row.get("product_type") or ""}</p><p>{cure_status_badge(status)}</p><p><b>{int(row.get("quantity_on_hand") or 0)}</b> available</p><p>Retail: <b>${float(row.get("retail_price") or 0):.2f}</b></p></div>', unsafe_allow_html=True)
+                        else:
+                            st.markdown(f'<div class="soap-product-card"><div class="soap-placeholder-photo">Add Photo</div><h4>{row.get("product_name") or "Product"}</h4><p>{row.get("product_type") or ""}</p><p>{cure_status_badge(status)}</p><p><b>{int(row.get("quantity_on_hand") or 0)}</b> available</p><p>Retail: <b>${float(row.get("retail_price") or 0):.2f}</b></p></div>', unsafe_allow_html=True)
 
 elif page == "Ingredient Label Generator":
     st.title("Ingredient Label Generator")
@@ -2237,7 +2432,7 @@ elif page == "My Settings":
     st.caption("Choose the color theme for The Soap Lab interface.")
 
     theme_names = list(THEMES.keys())
-    current_theme = st.session_state.get("app_theme", "Purple")
+    current_theme = st.session_state.get("app_theme", "Lavender")
     selected_theme = st.radio(
         "App Color Theme",
         theme_names,
