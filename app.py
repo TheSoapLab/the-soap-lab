@@ -632,6 +632,18 @@ def cure_status_badge(status):
     return f'<span class="fg-status-badge {css_class}">{status}</span>'
 
 
+st.markdown("""
+<style>
+
+/* v2.0.5 native Streamlit top navigation */
+.soap-real-nav-shell { margin-bottom: .65rem !important; }
+.soap-subnav-label { font-size:.82rem; font-weight:900; color:#7C3AED !important; margin:.45rem 0 .25rem 0; text-transform:uppercase; letter-spacing:.04em; }
+div[data-testid="stPopover"] button,
+div[data-testid="stPopover"] button * { color:#3B2B66 !important; }
+
+</style>
+""", unsafe_allow_html=True)
+
 NAV = {
     "Dashboard": ["Dashboard"],
     "Production": ["Batch Production", "Cure Tracking", "Finished Goods"],
@@ -642,75 +654,72 @@ NAV = {
     "Settings": ["My Settings"],
 }
 
-# v2.0.3: query-param driven top navigation that visually matches the lavender SaaS mockup.
-try:
-    qp_section = st.query_params.get("section")
-    qp_page = st.query_params.get("page")
-except Exception:
-    qp_section = None
-    qp_page = None
-
+# v2.0.6: NO-LINK navigation. Every menu and quick action is a real Streamlit button/selectbox.
+# There are no HTML anchors, hrefs, page_links, or link_buttons, so nothing can open a new browser tab.
 if "active_section" not in st.session_state:
     st.session_state.active_section = "Dashboard"
-if qp_section in NAV:
-    st.session_state.active_section = qp_section
+if st.session_state.active_section not in NAV:
+    st.session_state.active_section = "Dashboard"
+if "active_subpage" not in st.session_state:
+    st.session_state.active_subpage = NAV[st.session_state.active_section][0]
+if st.session_state.active_subpage not in NAV[st.session_state.active_section]:
+    st.session_state.active_subpage = NAV[st.session_state.active_section][0]
 
-active_section = st.session_state.active_section
-subpages = NAV[active_section]
-
-if "active_subpage" not in st.session_state or st.session_state.active_subpage not in subpages:
-    st.session_state.active_subpage = subpages[0]
-if qp_page in subpages:
-    st.session_state.active_subpage = qp_page
-
-page = st.session_state.active_subpage
-
-def nav_url(section, page_name=None):
-    page_name = page_name or NAV[section][0]
-    return f"?section={section.replace(' ', '+')}&page={page_name.replace(' ', '+').replace('/', '%2F')}"
-
-nav_items_html = "".join([
-    f'<a class="soap-nav-item {"active" if active_section == sec else ""}" href="{nav_url(sec)}">'
-    f'<span class="soap-nav-icon">{icon}</span>{sec}<span class="soap-chevron">⌄</span></a>'
-    for sec, icon in [
-        ("Dashboard", "⌂"), ("Production", "⚗"), ("Inventory", "▣"),
-        ("Products", "□"), ("Sales", "$"), ("Reports", "▥"), ("Settings", "⚙")
-    ]
-])
+def go_to(section, subpage=None):
+    st.session_state.active_section = section
+    st.session_state.active_subpage = subpage or NAV[section][0]
+    st.rerun()
 
 st.markdown(f"""
-<div class="soap-app-shell-top">
+<div class="soap-app-shell-top soap-real-nav-shell">
   <div class="soap-brand-block">
     <div class="soap-logo-mark">⚗</div>
     <div class="soap-brand-script">The Soap Lab</div>
   </div>
-  <nav class="soap-main-nav">{nav_items_html}</nav>
   <div class="soap-top-search">Search everything... <span>⌕</span></div>
   <div class="soap-user-pill">TS</div>
 </div>
 """, unsafe_allow_html=True)
 
+# Functional top menu row
+nav_cols = st.columns([1, 1, 1, 1, .9, .9, .9])
+for col, section in zip(nav_cols, NAV.keys()):
+    active_marker = "✓ " if st.session_state.active_section == section else ""
+    label = f"{active_marker}{section}"
+    if col.button(label, key=f"top_nav_btn_{section}", use_container_width=True):
+        go_to(section, NAV[section][0])
+
+subpages = NAV[st.session_state.active_section]
 if len(subpages) > 1:
-    sub_items_html = "".join([
-        f'<a class="soap-subnav-item {"active" if page == sub else ""}" href="{nav_url(active_section, sub)}">{sub}</a>'
-        for sub in subpages
-    ])
-    st.markdown(f'<div class="soap-subnav-wrap">{sub_items_html}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="soap-subnav-label">{st.session_state.active_section} Menu</div>', unsafe_allow_html=True)
+    sub_cols = st.columns(min(len(subpages), 6))
+    for i, sub in enumerate(subpages):
+        col = sub_cols[i % len(sub_cols)]
+        active_marker = "✓ " if st.session_state.active_subpage == sub else ""
+        if col.button(f"{active_marker}{sub}", key=f"sub_nav_btn_{st.session_state.active_section}_{sub}", use_container_width=True):
+            st.session_state.active_subpage = sub
+            st.rerun()
+
+page = st.session_state.active_subpage
 
 st.sidebar.title("The Soap Lab")
-st.sidebar.caption("v2.0.3")
+st.sidebar.caption("v2.0.6")
 st.sidebar.markdown("### Quick Actions")
-if st.sidebar.button("+ New Recipe", use_container_width=True):
-    st.session_state.active_section = "Products"
+if st.sidebar.button("+ New Recipe", key="quick_new_recipe", use_container_width=True):
     st.session_state.recipe_mode = "add"
-    st.rerun()
-if st.sidebar.button("+ New Batch", use_container_width=True):
-    st.session_state.active_section = "Production"
-    st.rerun()
-if st.sidebar.button("+ Add Inventory", use_container_width=True):
-    st.session_state.active_section = "Inventory"
+    go_to("Products", "Recipes")
+if st.sidebar.button("+ New Batch", key="quick_new_batch", use_container_width=True):
+    go_to("Production", "Batch Production")
+if st.sidebar.button("+ Add Inventory", key="quick_add_inventory", use_container_width=True):
     st.session_state.inventory_mode = "add"
-    st.rerun()
+    go_to("Inventory", "Inventory")
+if st.sidebar.button("+ Record Sale", key="quick_record_sale", use_container_width=True):
+    go_to("Sales", "POS / Sales")
+st.sidebar.divider()
+st.sidebar.markdown("### Main Menu")
+for section, pages in NAV.items():
+    if st.sidebar.button(section, key=f"side_nav_{section}", use_container_width=True):
+        go_to(section, pages[0])
 st.sidebar.divider()
 st.sidebar.markdown("### Current Theme")
 st.sidebar.write(st.session_state.get("app_theme", "Lavender"))
