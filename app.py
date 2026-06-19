@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from supabase import create_client
 
 # The Soap Lab v2.0.0 — Clean navigation, theme refresh, product photo fields
-st.set_page_config(page_title="The Soap Lab", layout="wide")
+st.set_page_config(page_title="The Soap Lab", layout="wide", initial_sidebar_state="expanded")
 
 THEMES = {
     "Lavender": {"accent": "#7C3AED", "dark": "#5B21B6", "soft": "#EDE9FE", "pale": "#FAF7FF", "sidebar": "#F3E8FF", "border": "#DDD6FE"},
@@ -280,8 +280,27 @@ small, .caption, [data-testid="stCaptionContainer"] * {{
 }}
 
 
+/* v2.0.7 SIDEBAR SAFETY: keep Streamlit collapse/expand controls usable */
+button[title="View fullscreen"],
+button[title="Exit fullscreen"] { display: flex !important; }
+button[aria-label="Close sidebar"],
+button[aria-label="Open sidebar"],
+button[title="Close sidebar"],
+button[title="Open sidebar"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    z-index: 999999 !important;
+}
+[data-testid="collapsedControl"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    z-index: 999999 !important;
+}
+
 /* v2.0.3 EXACT MOCKUP-STYLE NAVIGATION */
-[data-testid="stHeader"] {{ display: none !important; }}
+[data-testid="stHeader"] {{ background: transparent !important; }}
 .block-container {{ padding-top: 1.15rem !important; max-width: 1600px !important; }}
 .soap-app-shell-top {{
     background: linear-gradient(90deg, #A78BFA 0%, #8B5CF6 55%, #A78BFA 100%);
@@ -654,7 +673,7 @@ NAV = {
     "Settings": ["My Settings"],
 }
 
-# v2.0.6: NO-LINK navigation. Every menu and quick action is a real Streamlit button/selectbox.
+# v2.0.7: NO-LINK navigation. Every menu and quick action is a real Streamlit button/selectbox.
 # There are no HTML anchors, hrefs, page_links, or link_buttons, so nothing can open a new browser tab.
 if "active_section" not in st.session_state:
     st.session_state.active_section = "Dashboard"
@@ -703,7 +722,7 @@ if len(subpages) > 1:
 page = st.session_state.active_subpage
 
 st.sidebar.title("The Soap Lab")
-st.sidebar.caption("v2.0.6")
+st.sidebar.caption("v2.0.7")
 st.sidebar.markdown("### Quick Actions")
 if st.sidebar.button("+ New Recipe", key="quick_new_recipe", use_container_width=True):
     st.session_state.recipe_mode = "add"
