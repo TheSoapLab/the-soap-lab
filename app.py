@@ -223,51 +223,51 @@ small, .caption, [data-testid="stCaptionContainer"] * {{
 }}
 
 /* V2 TOP NAV + CARDS */
-.soap-topbar {
+.soap-topbar {{
     background: linear-gradient(90deg, {PINK_DARK} 0%, {PINK} 100%);
     color: white !important;
     padding: 18px 24px;
     border-radius: 18px;
     margin-bottom: 16px;
     box-shadow: 0 12px 30px rgba(17,24,39,0.10);
-}
-.soap-topbar * { color: white !important; }
-.soap-brand {
+}}
+.soap-topbar * {{ color: white !important; }}
+.soap-brand {{
     font-size: 1.6rem;
     font-weight: 900;
     letter-spacing: -0.03em;
-}
-.soap-subtle-card {
+}}
+.soap-subtle-card {{
     background: #FFFFFF;
     border: 1px solid {BORDER};
     border-radius: 16px;
     padding: 18px;
     box-shadow: 0 8px 22px rgba(17,24,39,0.05);
-}
-.soap-action-bar {
+}}
+.soap-action-bar {{
     background: #FFFFFF;
     border: 1px solid {BORDER};
     border-radius: 14px;
     padding: 12px;
     margin: 10px 0 18px 0;
-}
-.soap-product-card {
+}}
+.soap-product-card {{
     background: #FFFFFF;
     border: 1px solid {BORDER};
     border-radius: 16px;
     padding: 14px;
     min-height: 220px;
     box-shadow: 0 8px 22px rgba(17,24,39,0.05);
-}
-.soap-product-photo {
+}}
+.soap-product-photo {{
     width: 100%;
     height: 115px;
     object-fit: cover;
     border-radius: 12px;
     background: {PINK_SOFT};
     border: 1px solid {SIDEBAR_BORDER};
-}
-.soap-placeholder-photo {
+}}
+.soap-placeholder-photo {{
     height: 115px;
     border-radius: 12px;
     background: {PINK_SOFT};
@@ -277,7 +277,7 @@ small, .caption, [data-testid="stCaptionContainer"] * {{
     justify-content: center;
     font-weight: 800;
     color: {PINK_DARK} !important;
-}
+}}
 
 </style>
 """, unsafe_allow_html=True)
