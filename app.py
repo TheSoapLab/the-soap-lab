@@ -2,7 +2,19 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 from datetime import date, timedelta
+from io import BytesIO
 from supabase import create_client
+
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    REPORTLAB_AVAILABLE = True
+except Exception:
+    REPORTLAB_AVAILABLE = False
+
 
 # The Soap Lab v2.0.0 — Clean navigation, theme refresh, product photo fields
 st.set_page_config(page_title="The Soap Lab", layout="wide", initial_sidebar_state="expanded")
@@ -698,6 +710,138 @@ def dataframe_to_print_table(pdf, columns):
     return "<table><thead><tr>{}</tr></thead><tbody>{}</tbody></table>".format(header, "".join(rows))
 
 
+def make_simple_pdf(title, meta=None, table_df=None, table_columns=None, notes=None, filename_note=None):
+    """Create a clean printable PDF in memory for The Soap Lab."""
+    if not REPORTLAB_AVAILABLE:
+        return None
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=0.55 * inch,
+        leftMargin=0.55 * inch,
+        topMargin=0.55 * inch,
+        bottomMargin=0.55 * inch,
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "SoapLabTitle",
+        parent=styles["Title"],
+        fontName="Helvetica-Bold",
+        fontSize=20,
+        leading=24,
+        textColor=colors.HexColor("#5B21B6"),
+        spaceAfter=12,
+    )
+    heading_style = ParagraphStyle(
+        "SoapLabHeading",
+        parent=styles["Heading2"],
+        fontName="Helvetica-Bold",
+        fontSize=12,
+        leading=14,
+        textColor=colors.HexColor("#111827"),
+        spaceBefore=8,
+        spaceAfter=6,
+    )
+    body_style = ParagraphStyle(
+        "SoapLabBody",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=9,
+        leading=12,
+        textColor=colors.HexColor("#111827"),
+    )
+    small_style = ParagraphStyle(
+        "SoapLabSmall",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#374151"),
+    )
+
+    story = []
+    story.append(Paragraph("The Soap Lab", title_style))
+    story.append(Paragraph(str(title), heading_style))
+    if filename_note:
+        story.append(Paragraph(str(filename_note), small_style))
+    story.append(Spacer(1, 8))
+
+    if meta:
+        meta_rows = []
+        items = list(meta.items())
+        for i in range(0, len(items), 2):
+            row = []
+            for label, value in items[i:i+2]:
+                row.append(Paragraph(f"<b>{escape_html(label)}:</b> {escape_html(value)}", body_style))
+            if len(row) == 1:
+                row.append(Paragraph("", body_style))
+            meta_rows.append(row)
+        meta_table = Table(meta_rows, colWidths=[3.35 * inch, 3.35 * inch])
+        meta_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FAF7FF")),
+            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#DDD6FE")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E5E7EB")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 7),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(meta_table)
+        story.append(Spacer(1, 10))
+
+    if table_df is not None and table_columns:
+        story.append(Paragraph("Details", heading_style))
+        pdf_df = table_df.copy()
+        data = [[Paragraph(f"<b>{escape_html(c)}</b>", small_style) for c in table_columns]]
+        for _, row in pdf_df.iterrows():
+            data.append([Paragraph(escape_html(row.get(c, "")), small_style) for c in table_columns])
+        if len(data) == 1:
+            data.append([Paragraph("No records", small_style)] + [Paragraph("", small_style) for _ in table_columns[1:]])
+        usable_width = 7.0 * inch
+        col_width = usable_width / max(len(table_columns), 1)
+        table = Table(data, colWidths=[col_width] * len(table_columns), repeatRows=1)
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EDE9FE")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111827")),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#D1D5DB")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        story.append(table)
+        story.append(Spacer(1, 10))
+
+    if notes:
+        story.append(Paragraph("Notes", heading_style))
+        for line in str(notes).splitlines() or [""]:
+            story.append(Paragraph(escape_html(line), body_style))
+
+    story.append(Spacer(1, 12))
+    story.append(Paragraph("Generated by The Soap Lab", small_style))
+    doc.build(story)
+    pdf = buffer.getvalue()
+    buffer.close()
+    return pdf
+
+
+def download_pdf_button(label, pdf_bytes, file_name, key=None):
+    if pdf_bytes is None:
+        st.warning("PDF export requires ReportLab. Add reportlab to requirements.txt if this is running on Streamlit Cloud.")
+        return
+    st.download_button(
+        label,
+        data=pdf_bytes,
+        file_name=file_name,
+        mime="application/pdf",
+        use_container_width=True,
+        key=key,
+    )
+
+
 st.markdown("""
 <style>
 
@@ -977,6 +1121,17 @@ elif page == "Inventory":
                     mime="text/csv",
                     use_container_width=True
                 )
+                inventory_pdf = make_simple_pdf(
+                    "Inventory Report",
+                    meta={
+                        "Items Shown": len(display_df),
+                        "Inventory Value": f"${display_df['inventory_value'].sum():.2f}" if "inventory_value" in display_df.columns else "$0.00",
+                        "Generated": date.today(),
+                    },
+                    table_df=display_df[export_cols],
+                    table_columns=export_cols,
+                )
+                download_pdf_button("Download Inventory PDF", inventory_pdf, "soap_lab_inventory_report.pdf", key="inventory_pdf_download")
                 if st.button("Show Printable Inventory", key="print_inventory_view", use_container_width=True):
                     st.session_state.show_print_inventory = not st.session_state.get("show_print_inventory", False)
                 if st.session_state.get("show_print_inventory", False):
@@ -2135,6 +2290,26 @@ elif page == "Batch Production":
                 mime="text/plain",
                 use_container_width=True
             )
+            batch_ingredient_df = pd.DataFrame(
+                [{"Ingredient": x.item_name, "Amount": x.amount_used, "Unit": x.unit_line} for x in lines.itertuples()]
+            ) if not lines.empty else pd.DataFrame(columns=["Ingredient", "Amount", "Unit"])
+            batch_pdf = make_simple_pdf(
+                "Batch Card",
+                meta={
+                    "Batch #": batch,
+                    "Recipe": r["recipe_name"],
+                    "Date Made": made_date,
+                    "Ready Date": cure_date,
+                    "Status": cure_status,
+                    "Quantity": qty,
+                    "Batch Cost": f"${total:.2f}",
+                    "Cost Per Item": f"${cpi:.2f}",
+                },
+                table_df=batch_ingredient_df,
+                table_columns=["Ingredient", "Amount", "Unit"],
+                notes=f"{notes}\n\nQuality Check:\nAppearance: ____________________\nScent: ____________________\nWeight: ____________________\nMaker Initials: __________  Date: __________",
+            )
+            download_pdf_button("Download Batch Card PDF", batch_pdf, f"batch_card_{str(batch).replace(' ', '_')}.pdf", key="batch_card_pdf_download")
             ingredient_rows = "".join([f"<tr><td>{escape_html(x.item_name)}</td><td>{escape_html(x.amount_used)}</td><td>{escape_html(x.unit_line)}</td></tr>" for x in lines.itertuples()]) if not lines.empty else "<tr><td colspan='3'>No ingredients added.</td></tr>"
             card_html = f"""
             <div class='meta'>
@@ -2279,6 +2454,17 @@ elif page == "Finished Goods":
                     mime="text/csv",
                     use_container_width=True
                 )
+                finished_pdf = make_simple_pdf(
+                    "Finished Goods Report",
+                    meta={
+                        "Items Shown": len(display_goods),
+                        "Inventory Value": f"${display_goods['total_value'].sum():.2f}" if "total_value" in display_goods.columns else "$0.00",
+                        "Generated": date.today(),
+                    },
+                    table_df=display_goods[export_cols],
+                    table_columns=export_cols,
+                )
+                download_pdf_button("Download Finished Goods PDF", finished_pdf, "soap_lab_finished_goods_report.pdf", key="finished_goods_pdf_download")
                 if st.button("Show Printable Finished Goods", key="print_finished_goods_view", use_container_width=True):
                     st.session_state.show_print_finished_goods = not st.session_state.get("show_print_finished_goods", False)
                 if st.session_state.get("show_print_finished_goods", False):
@@ -2599,6 +2785,17 @@ elif page == "Cure Tracking":
                     mime="text/csv",
                     use_container_width=True
                 )
+                cure_pdf = make_simple_pdf(
+                    "Cure Tracking Report",
+                    meta={
+                        "Items Shown": len(show),
+                        "Selected Status": status,
+                        "Generated": date.today(),
+                    },
+                    table_df=show[export_cols],
+                    table_columns=export_cols,
+                )
+                download_pdf_button("Download Cure Tracking PDF", cure_pdf, "soap_lab_cure_tracking_report.pdf", key="cure_tracking_pdf_download")
                 if st.button("Show Printable Cure Tracking", key="print_cure_tracking_view", use_container_width=True):
                     st.session_state.show_print_cure_tracking = not st.session_state.get("show_print_cure_tracking", False)
                 if st.session_state.get("show_print_cure_tracking", False):
