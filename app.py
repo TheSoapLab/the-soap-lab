@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
 
-# The Soap Lab v1.4.4 — Direct cure_status save fix
+# The Soap Lab v1.4.6 — Status fallback + migration-ready app
 st.set_page_config(page_title="The Soap Lab", layout="wide")
 PINK = "#D63384"
 PINK_DARK = "#B91E63"
@@ -368,56 +368,71 @@ def normalize_cure_status(value):
     return "Curing"
 
 def update_finished_good_status(row_id, status, batch_id=None, batch_number=None):
-    """Update cure status directly on finished_goods.
-    This version updates ONLY the cure_status field first so a missing optional
-    status column cannot block the save. It never deletes or hides inventory.
+    """Update the finished goods cure status without deleting or hiding inventory.
+
+    For current installs, cure_status is the official field. For older / partially
+    migrated installs, status is used as a fallback so the app can keep working.
+    A sold version should run database migrations automatically during deployment.
     """
     status = normalize_cure_status(status)
     row_id = int(row_id)
+    last_error = None
 
+    # Try the current column first.
     try:
-        # Main source of truth: finished_goods.cure_status
         supabase.table("finished_goods").update({"cure_status": status}).eq("id", row_id).execute()
-
-        # Optional helper flag. If the column is missing, ignore it.
-        try:
-            supabase.table("finished_goods").update({"hide_from_cure_tracking": False}).eq("id", row_id).execute()
-        except Exception:
-            pass
-
-        # Optional legacy/display column. If the column is missing, ignore it.
-        try:
-            supabase.table("finished_goods").update({"status": status}).eq("id", row_id).execute()
-        except Exception:
-            pass
-
-        verify = supabase.table("finished_goods").select("id,cure_status").eq("id", row_id).execute()
-        verified_status = None
-        if verify.data:
-            verified_status = normalize_cure_status(verify.data[0].get("cure_status"))
-
-        if verified_status != status:
-            st.error("Supabase did not save the status change. This is almost always an UPDATE policy issue on finished_goods.")
-            st.info("Run the v1.4.4 SQL file in Supabase, then try the status update again.")
-            return False, verify
-
-        # Best-effort batch sync. Cure Tracking reads finished_goods first, so this is not required.
-        if batch_id not in [None, "", "nan"]:
-            try:
-                supabase.table("batches").update({"cure_status": status}).eq("id", int(float(batch_id))).execute()
-            except Exception:
-                pass
-        if batch_number not in [None, "", "nan"]:
-            try:
-                supabase.table("batches").update({"cure_status": status}).eq("batch_number", str(batch_number)).execute()
-            except Exception:
-                pass
-
-        return True, verify
     except Exception as e:
-        st.error("Could not update cure status. Run the v1.4.4 Supabase SQL, then try again.")
+        last_error = e
+
+    # Try fallback display/legacy column. This is also useful if cure_status exists
+    # but the current app is reading status from a prior version.
+    try:
+        supabase.table("finished_goods").update({"status": status}).eq("id", row_id).execute()
+    except Exception as e:
+        if last_error is None:
+            last_error = e
+
+    # Optional helper flag. Missing column should not block a status update.
+    try:
+        supabase.table("finished_goods").update({"hide_from_cure_tracking": False}).eq("id", row_id).execute()
+    except Exception:
+        pass
+
+    # Verify using whichever columns exist.
+    try:
+        verify = supabase.table("finished_goods").select("*").eq("id", row_id).execute()
+    except Exception as e:
+        st.error("The app could not re-read this finished goods line after saving.")
         st.code(str(e))
         return False, None
+
+    verified_status = None
+    if verify.data:
+        record = verify.data[0]
+        # Prefer status as a fallback because some partial installs can update it
+        # even when cure_status remains stuck at an older value.
+        verified_status = normalize_cure_status(record.get("status") or record.get("cure_status"))
+
+    if verified_status != status:
+        st.error("The status did not persist in Supabase.")
+        st.caption("This is a database schema/RLS issue, not a button issue. For a production/sellable app, migrations should run automatically during setup/deployment instead of asking the user to paste SQL.")
+        if last_error is not None:
+            st.code(str(last_error))
+        return False, verify
+
+    # Best-effort batch sync. Finished Goods is the source of truth.
+    if batch_id not in [None, "", "nan"]:
+        try:
+            supabase.table("batches").update({"cure_status": status}).eq("id", int(float(batch_id))).execute()
+        except Exception:
+            pass
+    if batch_number not in [None, "", "nan"]:
+        try:
+            supabase.table("batches").update({"cure_status": status}).eq("batch_number", str(batch_number)).execute()
+        except Exception:
+            pass
+
+    return True, verify
 
 def cpu(row):
     q = float(row.get("quantity_purchased") or 0)
@@ -1688,7 +1703,7 @@ elif page == "Batch Production":
         cure_days = c3.number_input("Cure Days", min_value=0, step=1, value=int(r.get("cure_days") or 0))
 
         c4, c5 = st.columns(2)
-        default_status = "Finished" if int(cure_days or 0) == 0 else "Curing"
+        default_status = "Cured" if int(cure_days or 0) == 0 else "Curing"
         cure_status = c4.selectbox("Manual Cure Status", cure_status_options, index=cure_status_options.index(default_status))
         qty = c5.number_input("Quantity Made", min_value=1, value=int(r["bars_made"] or 1))
 
@@ -1805,7 +1820,9 @@ elif page == "Finished Goods":
         if "batch_number" not in gdf.columns:
             gdf["batch_number"] = ""
         if "status" in gdf.columns:
-            gdf["cure_status"] = gdf["cure_status"].where(gdf["cure_status"].notna() & (gdf["cure_status"].astype(str).str.strip() != ""), gdf["status"])
+            # Prefer manual status fallback when present, because older installs may save there.
+            status_text = gdf["status"].fillna("").astype(str).str.strip()
+            gdf["cure_status"] = gdf["cure_status"].where(status_text == "", gdf["status"])
         gdf["cure_status"] = gdf["cure_status"].apply(normalize_cure_status)
         gdf["cure_days"] = pd.to_numeric(gdf["cure_days"], errors="coerce").fillna(0).astype(int)
         gdf["quantity_on_hand"] = pd.to_numeric(gdf["quantity_on_hand"], errors="coerce").fillna(0)
@@ -2045,7 +2062,7 @@ elif page == "Finished Goods":
                         st.session_state.selected_finished_good_id = None
                         st.rerun()
                     except Exception as e:
-                        st.error("Supabase needs the v1.2.8 finished goods columns before this can save.")
+                        st.error("This save did not persist. The app needs its database migration/permissions to be applied automatically in deployment.")
                         st.code(str(e))
 
     elif st.session_state.finished_goods_mode == "delete":
@@ -2108,7 +2125,9 @@ elif page == "Cure Tracking":
             if col not in goods.columns:
                 goods[col] = "" if col in ["product_name", "cure_status", "cure_start_date", "cure_date", "notes"] else False if col == "hide_from_cure_tracking" else 0
         if "status" in goods.columns:
-            goods["cure_status"] = goods["cure_status"].where(goods["cure_status"].notna() & (goods["cure_status"].astype(str).str.strip() != ""), goods["status"])
+            # Prefer manual status fallback when present, because older installs may save there.
+            status_text = goods["status"].fillna("").astype(str).str.strip()
+            goods["cure_status"] = goods["cure_status"].where(status_text == "", goods["status"])
         goods["cure_status"] = goods["cure_status"].apply(normalize_cure_status)
         goods["cure_days"] = pd.to_numeric(goods["cure_days"], errors="coerce").fillna(0).astype(int)
         goods["quantity_on_hand"] = pd.to_numeric(goods["quantity_on_hand"], errors="coerce").fillna(0).astype(int)
