@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
 
-# The Soap Lab v1.4.3 — Cured status persistence + cure tracking remove
+# The Soap Lab v1.4.4 — Direct cure_status save fix
 st.set_page_config(page_title="The Soap Lab", layout="wide")
 PINK = "#D63384"
 PINK_DARK = "#B91E63"
@@ -368,58 +368,54 @@ def normalize_cure_status(value):
     return "Curing"
 
 def update_finished_good_status(row_id, status, batch_id=None, batch_number=None):
-    """Update cure status only. Never deletes or hides finished goods inventory.
-    Also mirrors the status to matching batch rows where possible.
-    Returns False if Supabase/RLS silently refuses the update.
+    """Update cure status directly on finished_goods.
+    This version updates ONLY the cure_status field first so a missing optional
+    status column cannot block the save. It never deletes or hides inventory.
     """
     status = normalize_cure_status(status)
     row_id = int(row_id)
-    payload = {
-        "cure_status": status,
-        "status": status,
-        "hide_from_cure_tracking": False,
-    }
 
     try:
-        # Update finished_goods. Some Supabase/RLS failures return zero updated rows without a loud error,
-        # so we verify by reading the row back after the update.
-        try:
-            supabase.table("finished_goods").update(payload).eq("id", row_id).execute()
-        except Exception:
-            supabase.table("finished_goods").update({"cure_status": status, "hide_from_cure_tracking": False}).eq("id", row_id).execute()
+        # Main source of truth: finished_goods.cure_status
+        supabase.table("finished_goods").update({"cure_status": status}).eq("id", row_id).execute()
 
-        verify = supabase.table("finished_goods").select("id,cure_status,status").eq("id", row_id).execute()
+        # Optional helper flag. If the column is missing, ignore it.
+        try:
+            supabase.table("finished_goods").update({"hide_from_cure_tracking": False}).eq("id", row_id).execute()
+        except Exception:
+            pass
+
+        # Optional legacy/display column. If the column is missing, ignore it.
+        try:
+            supabase.table("finished_goods").update({"status": status}).eq("id", row_id).execute()
+        except Exception:
+            pass
+
+        verify = supabase.table("finished_goods").select("id,cure_status").eq("id", row_id).execute()
         verified_status = None
         if verify.data:
-            verified_status = normalize_cure_status(verify.data[0].get("cure_status") or verify.data[0].get("status"))
+            verified_status = normalize_cure_status(verify.data[0].get("cure_status"))
 
         if verified_status != status:
-            st.error("Supabase did not save the status change. This usually means the finished_goods UPDATE policy is missing.")
-            st.info("Run the v1.4.3 SQL file in Supabase, then try the status update again.")
+            st.error("Supabase did not save the status change. This is almost always an UPDATE policy issue on finished_goods.")
+            st.info("Run the v1.4.4 SQL file in Supabase, then try the status update again.")
             return False, verify
 
-        # Keep batch status synced for Cure Tracking/reports if batches has this column.
-        batch_payload = {"cure_status": status, "status": status}
+        # Best-effort batch sync. Cure Tracking reads finished_goods first, so this is not required.
         if batch_id not in [None, "", "nan"]:
             try:
-                supabase.table("batches").update(batch_payload).eq("id", int(float(batch_id))).execute()
+                supabase.table("batches").update({"cure_status": status}).eq("id", int(float(batch_id))).execute()
             except Exception:
-                try:
-                    supabase.table("batches").update({"cure_status": status}).eq("id", int(float(batch_id))).execute()
-                except Exception:
-                    pass
+                pass
         if batch_number not in [None, "", "nan"]:
             try:
-                supabase.table("batches").update(batch_payload).eq("batch_number", str(batch_number)).execute()
+                supabase.table("batches").update({"cure_status": status}).eq("batch_number", str(batch_number)).execute()
             except Exception:
-                try:
-                    supabase.table("batches").update({"cure_status": status}).eq("batch_number", str(batch_number)).execute()
-                except Exception:
-                    pass
+                pass
 
         return True, verify
     except Exception as e:
-        st.error("Could not update cure status. Check Supabase column/policy for finished_goods.cure_status.")
+        st.error("Could not update cure status. Run the v1.4.4 Supabase SQL, then try again.")
         st.code(str(e))
         return False, None
 
@@ -457,7 +453,7 @@ def cure_status_badge(status):
     return f'<span class="fg-status-badge {css_class}">{status}</span>'
 
 st.sidebar.title("The Soap Lab")
-st.sidebar.caption("v1.4.3")
+st.sidebar.caption("v1.4.4")
 main_pages = [
     "Dashboard",
     "Recipes",
@@ -2008,11 +2004,42 @@ elif page == "Finished Goods":
                     }
                     try:
                         if is_edit:
-                            update_row("finished_goods", int(selected_id), data)
+                            try:
+                                update_row("finished_goods", int(selected_id), data)
+                            except Exception:
+                                # Fallback for older Supabase tables that do not have every optional column yet.
+                                minimal_data = {
+                                    "product_name": product_name.strip(),
+                                    "product_type": product_type.strip(),
+                                    "quantity_on_hand": qty,
+                                    "cost_per_item": cost_per_item,
+                                    "retail_price": retail_price,
+                                    "cure_status": cure_status,
+                                    "cure_days": int(cure_days or 0),
+                                    "cure_start_date": str(cure_start_date),
+                                    "cure_date": str(cure_date),
+                                    "notes": notes.strip(),
+                                }
+                                update_row("finished_goods", int(selected_id), minimal_data)
                             # Force status persistence and sync after the full save.
                             update_finished_good_status(int(selected_id), cure_status, batch_id_value, selected.get("batch_number"))
                         else:
-                            insert_row("finished_goods", data)
+                            try:
+                                insert_row("finished_goods", data)
+                            except Exception:
+                                minimal_data = {
+                                    "product_name": product_name.strip(),
+                                    "product_type": product_type.strip(),
+                                    "quantity_on_hand": qty,
+                                    "cost_per_item": cost_per_item,
+                                    "retail_price": retail_price,
+                                    "cure_status": cure_status,
+                                    "cure_days": int(cure_days or 0),
+                                    "cure_start_date": str(cure_start_date),
+                                    "cure_date": str(cure_date),
+                                    "notes": notes.strip(),
+                                }
+                                insert_row("finished_goods", minimal_data)
                         st.session_state.active_finished_goods_status = "All"
                         st.session_state.finished_goods_mode = "list"
                         st.session_state.selected_finished_good_id = None
@@ -2119,7 +2146,7 @@ elif page == "Cure Tracking":
                         update_row("finished_goods", int(row.get("id")), {"hide_from_cure_tracking": True})
                         st.rerun()
                     except Exception as e:
-                        st.error("Could not remove from Cure Tracking. Run the v1.4.3 SQL first.")
+                        st.error("Could not remove from Cure Tracking. Run the v1.4.4 SQL first.")
                         st.code(str(e))
                 st.markdown("<hr style='margin: 0.35rem 0; border: none; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
 
