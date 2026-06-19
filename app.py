@@ -187,11 +187,11 @@ small, .caption, [data-testid="stCaptionContainer"] * {{
 
 /* Lighten number stepper controls so they do not show as black boxes */
 [data-testid="stNumberInput"] button,
-[data-testid="stNumberInput"] button * {
+[data-testid="stNumberInput"] button * {{
     background-color: #FFFFFF !important;
     color: #111827 !important;
     border-color: #D1D5DB !important;
-}
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -286,7 +286,7 @@ div[data-testid="stNumberInput"] button {
     color: rgb(17, 24, 39) !important;
     border: 1px solid rgb(209, 213, 219) !important;
 }
-div[data-testid="stNumberInput"] button * {
+div[data-testid="stNumberInput"] button * {{
     color: rgb(17, 24, 39) !important;
 }
 </style>
@@ -299,7 +299,7 @@ st.markdown("""
 <style>
 /* v1.4.0: keep number stepper buttons and small controls light/readable */
 [data-testid="stNumberInput"] button,
-[data-testid="stNumberInput"] button * {
+[data-testid="stNumberInput"] button * {{
     background-color: #FFFFFF !important;
     color: #111827 !important;
     border-color: #D1D5DB !important;
