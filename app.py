@@ -3,12 +3,27 @@ import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
 
-# The Soap Lab v1.4.6 — Status fallback + migration-ready app
+# The Soap Lab v1.4.7 — Theme settings + readable finished goods cells
 st.set_page_config(page_title="The Soap Lab", layout="wide")
-PINK = "#D63384"
-PINK_DARK = "#B91E63"
-PINK_SOFT = "#F8DDE8"
-PINK_PALE = "#FFF7FA"
+
+THEMES = {
+    "Purple": {"accent": "#7C3AED", "dark": "#5B21B6", "soft": "#EDE9FE", "pale": "#FAF7FF", "sidebar": "#F3E8FF", "border": "#DDD6FE"},
+    "Blue": {"accent": "#2563EB", "dark": "#1D4ED8", "soft": "#DBEAFE", "pale": "#F8FBFF", "sidebar": "#EFF6FF", "border": "#BFDBFE"},
+    "Pink": {"accent": "#D63384", "dark": "#B91E63", "soft": "#F8DDE8", "pale": "#FFF7FA", "sidebar": "#FBE7EF", "border": "#F3C6D7"},
+    "Orange": {"accent": "#EA580C", "dark": "#C2410C", "soft": "#FFEDD5", "pale": "#FFF7ED", "sidebar": "#FFF1E6", "border": "#FED7AA"},
+    "Red": {"accent": "#DC2626", "dark": "#991B1B", "soft": "#FEE2E2", "pale": "#FFF8F8", "sidebar": "#FEF2F2", "border": "#FECACA"},
+}
+
+if "app_theme" not in st.session_state:
+    st.session_state.app_theme = "Purple"
+
+_theme = THEMES.get(st.session_state.app_theme, THEMES["Purple"])
+PINK = _theme["accent"]
+PINK_DARK = _theme["dark"]
+PINK_SOFT = _theme["soft"]
+PINK_PALE = _theme["pale"]
+SIDEBAR_BG = _theme["sidebar"]
+SIDEBAR_BORDER = _theme["border"]
 TEXT = "#111827"
 MUTED = "#4B5563"
 BORDER = "#E5E7EB"
@@ -38,8 +53,8 @@ p, span, label, div {{
 
 /* SIDEBAR */
 section[data-testid="stSidebar"] {{
-    background: linear-gradient(180deg, #FBE7EF 0%, #FFF7FA 100%) !important;
-    border-right: 1px solid #F3C6D7 !important;
+    background: linear-gradient(180deg, {SIDEBAR_BG} 0%, {PINK_PALE} 100%) !important;
+    border-right: 1px solid {SIDEBAR_BORDER} !important;
 }}
 
 section[data-testid="stSidebar"] * {{
@@ -226,7 +241,7 @@ li[role="option"]:hover,
 div[role="option"]:hover,
 li[aria-selected="true"],
 div[aria-selected="true"] {
-    background-color: #F8DDE8 !important;
+    background-color: #F3F4F6 !important;
     color: #111827 !important;
 }
 
@@ -262,6 +277,15 @@ st.markdown("""
 .fg-curing { background:#FFEDD5; color:#C2410C !important; border:1px solid #FDBA74; }
 .fg-review { background:#F3E8FF; color:#7E22CE !important; border:1px solid #D8B4FE; }
 .fg-not-started { background:#E5E7EB; color:#374151 !important; border:1px solid #D1D5DB; }
+.fg-plain-cell {
+    display:inline-block;
+    background:#FFFFFF !important;
+    color:#111827 !important;
+    border:1px solid #E5E7EB;
+    border-radius:8px;
+    padding:4px 8px;
+    font-weight:700;
+}
 
 /* force number/date controls light */
 div[data-baseweb="input"] button,
@@ -468,7 +492,7 @@ def cure_status_badge(status):
     return f'<span class="fg-status-badge {css_class}">{status}</span>'
 
 st.sidebar.title("The Soap Lab")
-st.sidebar.caption("v1.4.4")
+st.sidebar.caption("v1.4.7")
 main_pages = [
     "Dashboard",
     "Recipes",
@@ -1896,7 +1920,7 @@ elif page == "Finished Goods":
                 current_status = row.get("cure_status") if row.get("cure_status") in cure_status_options else "Curing"
                 cols = st.columns([1.65, 0.95, 0.65, 0.8, 0.9, 1, 0.8, 1.2, 0.7, 0.7])
                 cols[0].markdown(f"**{row.get('product_name') or ''}**")
-                cols[1].write(row.get("batch_number") or row.get("batch_id") or "—")
+                cols[1].markdown(f'<span class="fg-plain-cell">{row.get("batch_number") or row.get("batch_id") or "—"}</span>', unsafe_allow_html=True)
                 cols[2].markdown(str(int(row.get("quantity_on_hand") or 0)))
                 cols[3].markdown(str(int(row.get("cure_days") or 0)))
                 cols[4].markdown(str(row.get("cure_date") or "—"))
@@ -2210,7 +2234,31 @@ elif page == "Units":
 
 elif page == "My Settings":
     st.title("My Settings")
-    st.info("App settings page placeholder for v1.2.9. We can add business name, default cure days, default units, and label settings here next.")
+    st.caption("Choose the color theme for The Soap Lab interface.")
+
+    theme_names = list(THEMES.keys())
+    current_theme = st.session_state.get("app_theme", "Purple")
+    selected_theme = st.radio(
+        "App Color Theme",
+        theme_names,
+        horizontal=True,
+        index=theme_names.index(current_theme) if current_theme in theme_names else 0,
+    )
+
+    if selected_theme != current_theme:
+        st.session_state.app_theme = selected_theme
+        st.toast(f"Theme changed to {selected_theme}")
+        st.rerun()
+
+    palette = THEMES[selected_theme]
+    st.markdown("### Theme Preview")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.markdown(f'<div style="background:{palette["accent"]};color:white;padding:16px;border-radius:12px;font-weight:800;text-align:center;">Main Button</div>', unsafe_allow_html=True)
+    c2.markdown(f'<div style="background:{palette["soft"]};color:#111827;padding:16px;border-radius:12px;font-weight:800;text-align:center;border:1px solid {palette["border"]};">Soft Accent</div>', unsafe_allow_html=True)
+    c3.markdown(f'<div style="background:{palette["pale"]};color:#111827;padding:16px;border-radius:12px;font-weight:800;text-align:center;border:1px solid #E5E7EB;">Page Background</div>', unsafe_allow_html=True)
+    c4.markdown(f'<div style="background:{palette["dark"]};color:white;padding:16px;border-radius:12px;font-weight:800;text-align:center;">Dark Accent</div>', unsafe_allow_html=True)
+
+    st.info("For now, themes save for the current browser session. Later we can store each user's theme in Supabase so it follows their login.")
 
 elif page in ["Sales Tracker", "POS / Sales"]:
     st.title("Sales Tracker")
