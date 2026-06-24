@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
 
-# The Soap Lab v2.0.0 — Clean navigation, theme refresh, product photo fields
+# The Soap Lab v2.1.2 — Recipe ingredient flow + CSS sidebar fix
 st.set_page_config(page_title="The Soap Lab", layout="wide", initial_sidebar_state="expanded")
 
 THEMES = {
@@ -280,24 +280,24 @@ small, .caption, [data-testid="stCaptionContainer"] * {{
 }}
 
 
-/* v2.0.7 SIDEBAR SAFETY: keep Streamlit collapse/expand controls usable */
+/* v2.1.2 SIDEBAR SAFETY: keep Streamlit collapse/expand controls usable */
 button[title="View fullscreen"],
-button[title="Exit fullscreen"] { display: flex !important; }
+button[title="Exit fullscreen"] {{ display: flex !important; }}
 button[aria-label="Close sidebar"],
 button[aria-label="Open sidebar"],
 button[title="Close sidebar"],
-button[title="Open sidebar"] {
+button[title="Open sidebar"] {{
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
     z-index: 999999 !important;
-}
-[data-testid="collapsedControl"] {
+}}
+[data-testid="collapsedControl"] {{
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
     z-index: 999999 !important;
-}
+}}
 
 /* v2.0.3 EXACT MOCKUP-STYLE NAVIGATION */
 [data-testid="stHeader"] {{ background: transparent !important; }}
@@ -722,7 +722,7 @@ if len(subpages) > 1:
 page = st.session_state.active_subpage
 
 st.sidebar.title("The Soap Lab")
-st.sidebar.caption("v2.0.7")
+st.sidebar.caption("v2.1.2")
 st.sidebar.markdown("### Quick Actions")
 if st.sidebar.button("+ New Recipe", key="quick_new_recipe", use_container_width=True):
     st.session_state.recipe_mode = "add"
@@ -1700,7 +1700,6 @@ elif page == "Recipes":
 
     elif st.session_state.recipe_mode == "add":
         st.subheader("Create New Recipe")
-        st.info("Step 1: Create the recipe shell here. Step 2: The app will open the recipe details page so you can add ingredient / inventory lines.")
 
         with st.form("create_recipe"):
             recipe_name = st.text_input("Recipe Name")
@@ -1709,7 +1708,7 @@ elif page == "Recipes":
             retail_price = st.number_input("Retail Price Per Item", min_value=0.0, step=0.01)
             cure_days = st.number_input("Cure / Ready Days", min_value=0, value=42, step=1)
             notes = st.text_area("Recipe Notes")
-            submitted = st.form_submit_button("Create Recipe and Add Ingredients")
+            submitted = st.form_submit_button("Create Recipe")
 
             if submitted:
                 if not recipe_name.strip():
@@ -1725,14 +1724,14 @@ elif page == "Recipes":
                     })
                     new_recipe_id = None
                     try:
-                        if getattr(res, "data", None):
-                            new_recipe_id = res.data[0].get("id")
+                        if res.data:
+                            new_recipe_id = int(res.data[0]["id"])
                     except Exception:
                         new_recipe_id = None
                     st.success(f"Created recipe {recipe_name}")
                     st.session_state.active_recipe_tab = product_type
-                    if new_recipe_id:
-                        st.session_state.selected_recipe_id = int(new_recipe_id)
+                    if new_recipe_id is not None:
+                        st.session_state.selected_recipe_id = new_recipe_id
                         st.session_state.recipe_mode = "details"
                     else:
                         st.session_state.recipe_mode = "list"
