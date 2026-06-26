@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
 
-# The Soap Lab v2.1.4 — Clean navigation, theme refresh, product photo fields
+# The Soap Lab v2.1.5 — Recipe ingredient flow fix
 st.set_page_config(page_title="The Soap Lab", layout="wide", initial_sidebar_state="expanded")
 
 THEMES = {
@@ -722,7 +722,7 @@ if len(subpages) > 1:
 page = st.session_state.active_subpage
 
 st.sidebar.title("The Soap Lab")
-st.sidebar.caption("v2.1.4")
+st.sidebar.caption("v2.1.5")
 st.sidebar.markdown("### Quick Actions")
 if st.sidebar.button("+ New Recipe", key="quick_new_recipe", use_container_width=True):
     st.session_state.recipe_mode = "add"
@@ -1701,6 +1701,8 @@ elif page == "Recipes":
     elif st.session_state.recipe_mode == "add":
         st.subheader("Create New Recipe")
 
+        st.info("Step 1: create the recipe. Step 2: The app will automatically open the recipe details page where you can add ingredient / inventory lines.")
+
         with st.form("create_recipe"):
             recipe_name = st.text_input("Recipe Name")
             product_type = st.selectbox("Recipe Tab / Category", recipe_tabs)
@@ -1724,21 +1726,20 @@ elif page == "Recipes":
                     })
                     new_recipe_id = None
                     try:
-                        if res.data:
+                        if getattr(res, "data", None):
                             new_recipe_id = res.data[0].get("id")
                     except Exception:
                         new_recipe_id = None
-                    if new_recipe_id is None:
-                        try:
-                            latest = supabase.table("recipes").select("id").eq("recipe_name", recipe_name.strip()).order("id", desc=True).limit(1).execute()
-                            if latest.data:
-                                new_recipe_id = latest.data[0].get("id")
-                        except Exception:
-                            pass
-                    st.success(f"Created recipe {recipe_name}")
+
+                    # Open the recipe immediately so the Add Ingredient / Inventory Line form is visible.
+                    st.success(f"Created recipe {recipe_name}. Now add ingredients below.")
                     st.session_state.active_recipe_tab = product_type
-                    st.session_state.selected_recipe_id = int(new_recipe_id) if new_recipe_id is not None else None
-                    st.session_state.recipe_mode = "details" if new_recipe_id is not None else "list"
+                    if new_recipe_id is not None:
+                        st.session_state.selected_recipe_id = int(new_recipe_id)
+                        st.session_state.recipe_mode = "details"
+                    else:
+                        # Fallback: if Supabase does not return data, reopen the list.
+                        st.session_state.recipe_mode = "list"
                     st.rerun()
 
     elif st.session_state.recipe_mode == "edit_recipe":
