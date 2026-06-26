@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
 
-# The Soap Lab v2.1.5 — Recipe ingredient flow fix
+# The Soap Lab v2.0.0 — Clean navigation, theme refresh, product photo fields
 st.set_page_config(page_title="The Soap Lab", layout="wide", initial_sidebar_state="expanded")
 
 THEMES = {
@@ -282,22 +282,22 @@ small, .caption, [data-testid="stCaptionContainer"] * {{
 
 /* v2.0.7 SIDEBAR SAFETY: keep Streamlit collapse/expand controls usable */
 button[title="View fullscreen"],
-button[title="Exit fullscreen"] {{ display: flex !important; }}
+button[title="Exit fullscreen"] { display: flex !important; }
 button[aria-label="Close sidebar"],
 button[aria-label="Open sidebar"],
 button[title="Close sidebar"],
-button[title="Open sidebar"] {{
+button[title="Open sidebar"] {
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
     z-index: 999999 !important;
-}}
-[data-testid="collapsedControl"] {{
+}
+[data-testid="collapsedControl"] {
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
     z-index: 999999 !important;
-}}
+}
 
 /* v2.0.3 EXACT MOCKUP-STYLE NAVIGATION */
 [data-testid="stHeader"] {{ background: transparent !important; }}
@@ -722,7 +722,7 @@ if len(subpages) > 1:
 page = st.session_state.active_subpage
 
 st.sidebar.title("The Soap Lab")
-st.sidebar.caption("v2.1.5")
+st.sidebar.caption("v2.0.7")
 st.sidebar.markdown("### Quick Actions")
 if st.sidebar.button("+ New Recipe", key="quick_new_recipe", use_container_width=True):
     st.session_state.recipe_mode = "add"
@@ -1700,19 +1700,26 @@ elif page == "Recipes":
 
     elif st.session_state.recipe_mode == "add":
         st.subheader("Create New Recipe")
+        st.caption("Build the recipe and ingredient/inventory lines on this same page, then save everything together.")
 
-        st.info("Step 1: create the recipe. Step 2: The app will automatically open the recipe details page where you can add ingredient / inventory lines.")
+        if "new_recipe_ingredients" not in st.session_state:
+            st.session_state.new_recipe_ingredients = []
 
-        with st.form("create_recipe"):
-            recipe_name = st.text_input("Recipe Name")
-            product_type = st.selectbox("Recipe Tab / Category", recipe_tabs)
-            bars_made = st.number_input("Number Made / Batch Yield", min_value=1, step=1)
-            retail_price = st.number_input("Retail Price Per Item", min_value=0.0, step=0.01)
-            cure_days = st.number_input("Cure / Ready Days", min_value=0, value=42, step=1)
+        st.markdown("### Recipe Details")
+        with st.form("create_recipe_one_page", clear_on_submit=False):
+            c1, c2 = st.columns([2, 1])
+            recipe_name = c1.text_input("Recipe Name")
+            product_type = c2.selectbox("Recipe Tab / Category", recipe_tabs)
+
+            c3, c4, c5 = st.columns(3)
+            bars_made = c3.number_input("Number Made / Batch Yield", min_value=1, step=1)
+            retail_price = c4.number_input("Retail Price Per Item", min_value=0.0, step=0.01)
+            cure_days = c5.number_input("Cure / Ready Days", min_value=0, value=42, step=1)
+
             notes = st.text_area("Recipe Notes")
-            submitted = st.form_submit_button("Create Recipe")
+            save_recipe = st.form_submit_button("Save Recipe With Ingredients")
 
-            if submitted:
+            if save_recipe:
                 if not recipe_name.strip():
                     st.error("Recipe name is required.")
                 else:
@@ -1724,23 +1731,111 @@ elif page == "Recipes":
                         "cure_days": cure_days,
                         "notes": notes.strip()
                     })
+
                     new_recipe_id = None
                     try:
-                        if getattr(res, "data", None):
-                            new_recipe_id = res.data[0].get("id")
+                        if res.data:
+                            new_recipe_id = int(res.data[0]["id"])
                     except Exception:
                         new_recipe_id = None
 
-                    # Open the recipe immediately so the Add Ingredient / Inventory Line form is visible.
-                    st.success(f"Created recipe {recipe_name}. Now add ingredients below.")
-                    st.session_state.active_recipe_tab = product_type
+                    if new_recipe_id is None:
+                        # Fallback for Supabase settings that do not return inserted rows.
+                        refreshed = table_df("recipes")
+                        if not refreshed.empty:
+                            match = refreshed[refreshed["recipe_name"] == recipe_name.strip()]
+                            if not match.empty:
+                                new_recipe_id = int(match.sort_values("id", ascending=False).iloc[0]["id"])
+
                     if new_recipe_id is not None:
-                        st.session_state.selected_recipe_id = int(new_recipe_id)
+                        for staged in st.session_state.new_recipe_ingredients:
+                            insert_row("recipe_lines", {
+                                "recipe_id": new_recipe_id,
+                                "inventory_id": int(staged["inventory_id"]),
+                                "amount_used": float(staged["amount_used"]),
+                                "unit": staged["unit"],
+                                "include_on_label": bool(staged["include_on_label"]),
+                                "label_name_override": staged.get("label_name_override", "")
+                            })
+                        st.session_state.new_recipe_ingredients = []
+                        st.session_state.selected_recipe_id = new_recipe_id
+                        st.session_state.active_recipe_tab = product_type
                         st.session_state.recipe_mode = "details"
+                        st.success("Recipe and ingredient lines saved.")
+                        st.rerun()
                     else:
-                        # Fallback: if Supabase does not return data, reopen the list.
+                        st.warning("Recipe saved, but the app could not get the new recipe ID to attach ingredients. Open the recipe and add lines there.")
+                        st.session_state.new_recipe_ingredients = []
+                        st.session_state.active_recipe_tab = product_type
                         st.session_state.recipe_mode = "list"
+                        st.rerun()
+
+        st.divider()
+        st.markdown("### Ingredients / Inventory Lines")
+
+        if inv.empty:
+            st.warning("Add inventory items first before building recipe ingredient lines.")
+        else:
+            with st.form("stage_recipe_ingredient", clear_on_submit=True):
+                inv_sorted = inv.sort_values("item_name")
+                item_choice = st.selectbox(
+                    "Inventory Item",
+                    inv_sorted["id"].astype(str) + " - " + inv_sorted["item_name"].astype(str)
+                )
+                c1, c2, c3 = st.columns([1, 1, 1.4])
+                amount_used = c1.number_input("Amount Used", min_value=0.0, step=0.01)
+                unit = c2.selectbox("Unit Used", ["oz", "g", "each"])
+                include_on_label = c3.checkbox("Include on ingredient label", value=True)
+                label_override = st.text_input("Label Name Override, optional")
+                add_staged_line = st.form_submit_button("Add Ingredient Line")
+
+                if add_staged_line:
+                    if amount_used <= 0:
+                        st.error("Amount used must be greater than zero.")
+                    else:
+                        inventory_id = int(item_choice.split(" - ")[0])
+                        item_name = item_choice.split(" - ", 1)[1]
+                        inv_match = inv_sorted[inv_sorted["id"] == inventory_id]
+                        category = inv_match.iloc[0].get("category") if not inv_match.empty else ""
+                        st.session_state.new_recipe_ingredients.append({
+                            "inventory_id": inventory_id,
+                            "item_name": item_name,
+                            "category": category,
+                            "amount_used": float(amount_used),
+                            "unit": unit,
+                            "include_on_label": include_on_label,
+                            "label_name_override": label_override.strip()
+                        })
+                        st.toast(f"Added {item_name} to this recipe draft")
+                        st.rerun()
+
+        staged_lines = st.session_state.get("new_recipe_ingredients", [])
+        if not staged_lines:
+            st.info("No ingredients added to this recipe draft yet.")
+        else:
+            st.markdown("#### Ingredient Lines to Save")
+            header = st.columns([2.2, 1.1, 0.9, 0.8, 1.3, 0.7])
+            header[0].markdown("**Item**")
+            header[1].markdown("**Category**")
+            header[2].markdown("**Amount**")
+            header[3].markdown("**Unit**")
+            header[4].markdown("**Label Name**")
+            header[5].markdown("**Remove**")
+            for idx, line in enumerate(staged_lines):
+                cols = st.columns([2.2, 1.1, 0.9, 0.8, 1.3, 0.7])
+                cols[0].markdown(f"**{line.get('item_name') or ''}**")
+                cols[1].write(line.get("category") or "")
+                cols[2].write(float(line.get("amount_used") or 0))
+                cols[3].write(line.get("unit") or "")
+                cols[4].write(line.get("label_name_override") or "—")
+                if cols[5].button("Remove", key=f"remove_staged_recipe_line_{idx}"):
+                    st.session_state.new_recipe_ingredients.pop(idx)
                     st.rerun()
+                st.markdown("<hr style='margin: 0.35rem 0; border: none; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
+
+            if st.button("Clear All Draft Ingredients"):
+                st.session_state.new_recipe_ingredients = []
+                st.rerun()
 
     elif st.session_state.recipe_mode == "edit_recipe":
         rid = st.session_state.selected_recipe_id
