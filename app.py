@@ -282,22 +282,22 @@ small, .caption, [data-testid="stCaptionContainer"] * {{
 
 /* v2.0.7 SIDEBAR SAFETY: keep Streamlit collapse/expand controls usable */
 button[title="View fullscreen"],
-button[title="Exit fullscreen"] { display: flex !important; }
+button[title="Exit fullscreen"] {{ display: flex !important; }}
 button[aria-label="Close sidebar"],
 button[aria-label="Open sidebar"],
 button[title="Close sidebar"],
-button[title="Open sidebar"] {
+button[title="Open sidebar"] {{
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
     z-index: 999999 !important;
-}
-[data-testid="collapsedControl"] {
+}}
+[data-testid="collapsedControl"] {{
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
     z-index: 999999 !important;
-}
+}}
 
 /* v2.0.3 EXACT MOCKUP-STYLE NAVIGATION */
 [data-testid="stHeader"] {{ background: transparent !important; }}
