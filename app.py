@@ -517,6 +517,34 @@ def _safe_slug(value):
     return value or "product"
 
 
+def normalize_image_url(value):
+    """Return a clean public image URL, or an empty string if the saved value is not displayable."""
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        value = value.get("publicUrl") or value.get("public_url") or value.get("signedURL") or value.get("url") or ""
+    value = str(value or "").strip().strip("'\"")
+    if value.startswith("http://") or value.startswith("https://") or value.startswith("data:image/"):
+        return value
+    return ""
+
+
+def render_product_photo(photo_url, caption="Product photo"):
+    """Render saved product photos safely without Streamlit trying to open bad paths."""
+    url = normalize_image_url(photo_url)
+    if url:
+        st.markdown(
+            f'<img src="{url}" alt="{caption}" class="soap-product-photo" style="height:220px; object-fit:cover; margin-bottom:8px;">',
+            unsafe_allow_html=True,
+        )
+        if caption:
+            st.caption(caption)
+    else:
+        st.markdown('<div class="soap-placeholder-photo">No Photo Yet</div>', unsafe_allow_html=True)
+        if str(photo_url or "").strip():
+            st.caption("The saved photo value is not a public image URL yet. Upload again or paste a full https image URL.")
+
+
 def upload_product_photo(uploaded_file, product_name="product"):
     """Upload a product image to Supabase Storage and return its public URL."""
     if uploaded_file is None:
@@ -539,7 +567,8 @@ def upload_product_photo(uploaded_file, product_name="product"):
             file_bytes,
             file_options={"content-type": mime_type, "upsert": "true"},
         )
-        return supabase.storage.from_(PRODUCT_PHOTO_BUCKET).get_public_url(file_path)
+        public_url = supabase.storage.from_(PRODUCT_PHOTO_BUCKET).get_public_url(file_path)
+        return normalize_image_url(public_url) or str(public_url or "").strip()
     except Exception as e:
         st.error("Photo upload failed. Make sure the Supabase Storage bucket and policies from the v2.2 SQL are installed.")
         st.code(str(e))
@@ -841,7 +870,7 @@ if page == "Dashboard":
             cols = st.columns(2)
             for i, (_, row) in enumerate(cards.iterrows()):
                 with cols[i % 2]:
-                    photo = str(row.get("photo_url") or "").strip() if "photo_url" in row.index else ""
+                    photo = normalize_image_url(row.get("photo_url")) if "photo_url" in row.index else ""
                     if photo:
                         st.markdown(f'<div class="soap-product-card"><img class="soap-product-photo" src="{photo}"><h4>{row.get("product_name") or "Product"}</h4><p>{int(row.get("quantity_on_hand") or 0)} available</p></div>', unsafe_allow_html=True)
                     else:
@@ -2680,7 +2709,7 @@ elif page == "Product Gallery":
                 cols = st.columns(4)
                 for col, (_, row) in zip(cols, rows.iloc[start_idx:start_idx+4].iterrows()):
                     with col:
-                        photo = str(row.get("photo_url") or "").strip()
+                        photo = normalize_image_url(row.get("photo_url"))
                         status = normalize_cure_status(row.get("cure_status") or "Curing")
                         if photo:
                             st.markdown(f'<div class="soap-product-card"><img class="soap-product-photo" src="{photo}"><h4>{row.get("product_name") or "Product"}</h4><p>{row.get("product_type") or ""}</p><p>{cure_status_badge(status)}</p><p><b>{int(row.get("quantity_on_hand") or 0)}</b> available</p><p>Retail: <b>${float(row.get("retail_price") or 0):.2f}</b></p></div>', unsafe_allow_html=True)
@@ -2707,10 +2736,7 @@ elif page == "Media Library":
         c1, c2 = st.columns([1, 1.4])
         with c1:
             current_photo = str(selected.get("photo_url") or "").strip()
-            if current_photo:
-                st.image(current_photo, caption="Current product photo", use_container_width=True)
-            else:
-                st.markdown('<div class="soap-placeholder-photo">No Photo Yet</div>', unsafe_allow_html=True)
+            render_product_photo(current_photo, caption="Current product photo")
 
         with c2:
             st.markdown(f"### {selected.get('product_name') or 'Product'}")
