@@ -2,8 +2,11 @@ import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
 from supabase import create_client
+import re
+import uuid
 
-# The Soap Lab v2.0.0 — Clean navigation, theme refresh, product photo fields
+
+# The Soap Lab v2.2.0 — Media Library and product photo uploads
 st.set_page_config(page_title="The Soap Lab", layout="wide", initial_sidebar_state="expanded")
 
 THEMES = {
@@ -504,6 +507,44 @@ except Exception:
     st.error("Add SUPABASE_URL and SUPABASE_KEY in Streamlit secrets first.")
     st.stop()
 
+PRODUCT_PHOTO_BUCKET = "product-photos"
+
+
+def _safe_slug(value):
+    value = str(value or "product").strip().lower()
+    value = re.sub(r"[^a-z0-9]+", "-", value)
+    value = value.strip("-")
+    return value or "product"
+
+
+def upload_product_photo(uploaded_file, product_name="product"):
+    """Upload a product image to Supabase Storage and return its public URL."""
+    if uploaded_file is None:
+        return None
+
+    try:
+        original_name = getattr(uploaded_file, "name", "product-photo.jpg") or "product-photo.jpg"
+        mime_type = getattr(uploaded_file, "type", None) or "image/jpeg"
+        ext = original_name.split(".")[-1].lower() if "." in original_name else "jpg"
+        if ext == "jpeg":
+            ext = "jpg"
+        if ext not in ["jpg", "png", "webp"]:
+            ext = "jpg"
+
+        file_path = f"products/{_safe_slug(product_name)}-{uuid.uuid4().hex[:12]}.{ext}"
+        file_bytes = uploaded_file.getvalue()
+
+        supabase.storage.from_(PRODUCT_PHOTO_BUCKET).upload(
+            file_path,
+            file_bytes,
+            file_options={"content-type": mime_type, "upsert": "true"},
+        )
+        return supabase.storage.from_(PRODUCT_PHOTO_BUCKET).get_public_url(file_path)
+    except Exception as e:
+        st.error("Photo upload failed. Make sure the Supabase Storage bucket and policies from the v2.2 SQL are installed.")
+        st.code(str(e))
+        return None
+
 def df(table):
     try:
         return pd.DataFrame(supabase.table(table).select("*").execute().data)
@@ -667,7 +708,7 @@ NAV = {
     "Dashboard": ["Dashboard"],
     "Production": ["Batch Production", "Cure Tracking", "Finished Goods"],
     "Inventory": ["Inventory", "Fragrance Library", "Suppliers", "Categories", "Units"],
-    "Products": ["Recipes", "Product Gallery", "Ingredient Label Generator", "Product Type View", "Can I Make This?", "Recipe Cost Summary"],
+    "Products": ["Recipes", "Product Gallery", "Media Library", "Ingredient Label Generator", "Product Type View", "Can I Make This?", "Recipe Cost Summary"],
     "Sales": ["POS / Sales"],
     "Reports": ["Reports"],
     "Settings": ["My Settings"],
@@ -722,7 +763,7 @@ if len(subpages) > 1:
 page = st.session_state.active_subpage
 
 st.sidebar.title("The Soap Lab")
-st.sidebar.caption("v2.0.7")
+st.sidebar.caption("v2.2.0")
 st.sidebar.markdown("### Quick Actions")
 if st.sidebar.button("+ New Recipe", key="quick_new_recipe", use_container_width=True):
     st.session_state.recipe_mode = "add"
@@ -2473,7 +2514,15 @@ elif page == "Finished Goods":
                 batch_label = str(selected.get("batch_number") or batch_id_value or "Manual") if is_edit else "Manual"
                 c3.text_input("Batch", value=batch_label, disabled=True)
 
-                photo_url = st.text_input("Product Photo URL", value=str(selected.get("photo_url") or "") if is_edit else "", help="Paste an image URL for now. Later we can add Supabase image upload.")
+                photo_url = st.text_input("Product Photo URL", value=str(selected.get("photo_url") or "") if is_edit else "", help="Paste an image URL or upload a product photo below.")
+                uploaded_photo = st.file_uploader(
+                    "Upload Product Photo",
+                    type=["png", "jpg", "jpeg", "webp"],
+                    key=f"finished_goods_photo_upload_{selected_id if is_edit else 'new'}",
+                    help="Uploads to Supabase Storage and saves the public image URL on this product."
+                )
+                if is_edit and str(selected.get("photo_url") or "").strip():
+                    st.image(str(selected.get("photo_url")), caption="Current product photo", width=220)
                 description = st.text_area("Product Description", value=str(selected.get("description") or "") if is_edit else "", height=80)
 
                 c4, c5, c6 = st.columns(3)
@@ -2509,6 +2558,12 @@ elif page == "Finished Goods":
                 save = st.form_submit_button("Save Finished Goods Line")
 
                 if save:
+                    saved_photo_url = photo_url.strip()
+                    if uploaded_photo is not None:
+                        uploaded_url = upload_product_photo(uploaded_photo, product_name.strip() or "product")
+                        if uploaded_url:
+                            saved_photo_url = uploaded_url
+
                     data = {
                         "product_name": product_name.strip(),
                         "product_type": product_type.strip(),
@@ -2522,7 +2577,7 @@ elif page == "Finished Goods":
                         "cure_start_date": str(cure_start_date),
                         "cure_date": str(cure_date),
                         "notes": notes.strip(),
-                        "photo_url": photo_url.strip(),
+                        "photo_url": saved_photo_url,
                         "description": description.strip(),
                     }
                     try:
@@ -2631,6 +2686,67 @@ elif page == "Product Gallery":
                             st.markdown(f'<div class="soap-product-card"><img class="soap-product-photo" src="{photo}"><h4>{row.get("product_name") or "Product"}</h4><p>{row.get("product_type") or ""}</p><p>{cure_status_badge(status)}</p><p><b>{int(row.get("quantity_on_hand") or 0)}</b> available</p><p>Retail: <b>${float(row.get("retail_price") or 0):.2f}</b></p></div>', unsafe_allow_html=True)
                         else:
                             st.markdown(f'<div class="soap-product-card"><div class="soap-placeholder-photo">Add Photo</div><h4>{row.get("product_name") or "Product"}</h4><p>{row.get("product_type") or ""}</p><p>{cure_status_badge(status)}</p><p><b>{int(row.get("quantity_on_hand") or 0)}</b> available</p><p>Retail: <b>${float(row.get("retail_price") or 0):.2f}</b></p></div>', unsafe_allow_html=True)
+
+elif page == "Media Library":
+    st.title("Media Library")
+    st.caption("Upload and manage product photos for soaps, body care items, finished goods, and product cards.")
+
+    goods = df("finished_goods")
+    if goods.empty:
+        st.info("Create finished goods first, then you can attach product photos here.")
+    else:
+        for col, default in {"product_name":"", "product_type":"", "photo_url":"", "description":"", "quantity_on_hand":0, "retail_price":0}.items():
+            if col not in goods.columns:
+                goods[col] = default
+
+        goods["display_label"] = goods["id"].astype(str) + " - " + goods["product_name"].fillna("Product").astype(str) + " / " + goods["product_type"].fillna("").astype(str)
+        choice = st.selectbox("Choose product / finished goods line", goods["display_label"].tolist())
+        gid = int(choice.split(" - ")[0])
+        selected = goods[goods["id"] == gid].iloc[0]
+
+        c1, c2 = st.columns([1, 1.4])
+        with c1:
+            current_photo = str(selected.get("photo_url") or "").strip()
+            if current_photo:
+                st.image(current_photo, caption="Current product photo", use_container_width=True)
+            else:
+                st.markdown('<div class="soap-placeholder-photo">No Photo Yet</div>', unsafe_allow_html=True)
+
+        with c2:
+            st.markdown(f"### {selected.get('product_name') or 'Product'}")
+            st.write(f"**Product Type:** {selected.get('product_type') or '—'}")
+            st.write(f"**Quantity:** {int(float(selected.get('quantity_on_hand') or 0))}")
+            st.write(f"**Retail:** ${float(selected.get('retail_price') or 0):.2f}")
+
+            with st.form("media_library_upload_form"):
+                new_photo = st.file_uploader("Upload new product photo", type=["png", "jpg", "jpeg", "webp"])
+                manual_url = st.text_input("Or paste image URL", value=current_photo)
+                description = st.text_area("Product Description", value=str(selected.get("description") or ""), height=100)
+                save_media = st.form_submit_button("Save Product Media")
+
+                if save_media:
+                    saved_photo_url = manual_url.strip()
+                    if new_photo is not None:
+                        uploaded_url = upload_product_photo(new_photo, selected.get("product_name") or "product")
+                        if uploaded_url:
+                            saved_photo_url = uploaded_url
+
+                    try:
+                        update_row("finished_goods", gid, {"photo_url": saved_photo_url, "description": description.strip()})
+                        st.success("Product media saved.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error("Could not save product media. Make sure finished_goods has photo_url and description columns.")
+                        st.code(str(e))
+
+        st.divider()
+        st.markdown("### Products With Photos")
+        display = goods.copy()
+        display["has_photo"] = display["photo_url"].fillna("").astype(str).str.strip() != ""
+        m1, m2 = st.columns(2)
+        m1.metric("With Photos", int(display["has_photo"].sum()))
+        m2.metric("Missing Photos", int((~display["has_photo"]).sum()))
+        st.dataframe(display[["product_name", "product_type", "photo_url", "description"]], use_container_width=True, hide_index=True)
 
 elif page == "Ingredient Label Generator":
     st.title("Ingredient Label Generator")
