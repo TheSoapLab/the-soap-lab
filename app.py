@@ -1845,9 +1845,11 @@ elif page == "Recipes":
         else:
             recipe = recipes[recipes["id"] == rid].iloc[0]
             st.subheader(f"Edit Recipe: {recipe.get('recipe_name')}")
+            st.caption("Edit recipe details and add, edit, or remove ingredient/inventory lines on this same page.")
 
             current_category = recipe.get("product_type")
 
+            st.markdown("### Recipe Details")
             with st.form("edit_recipe_form"):
                 recipe_name = st.text_input("Recipe Name", value=str(recipe.get("recipe_name") or ""))
                 product_type = st.selectbox(
@@ -1859,7 +1861,7 @@ elif page == "Recipes":
                 retail_price = st.number_input("Retail Price Per Item", min_value=0.0, step=0.01, value=float(recipe.get("retail_price") or 0))
                 cure_days = st.number_input("Cure / Ready Days", min_value=0, step=1, value=int(recipe.get("cure_days") or 0))
                 notes = st.text_area("Recipe Notes", value=str(recipe.get("notes") or ""))
-                save = st.form_submit_button("Save Recipe Changes")
+                save = st.form_submit_button("Save Recipe Details")
 
                 if save:
                     update_row("recipes", rid, {
@@ -1870,10 +1872,95 @@ elif page == "Recipes":
                         "cure_days": cure_days,
                         "notes": notes.strip()
                     })
-                    st.success("Recipe updated.")
+                    st.success("Recipe details updated.")
                     st.session_state.active_recipe_tab = product_type
-                    st.session_state.recipe_mode = "details"
+                    st.session_state.recipe_mode = "edit_recipe"
                     st.rerun()
+
+            st.divider()
+            lines = recipe_lines(rid)
+            total_cost = float(lines["line_cost"].sum()) if not lines.empty and "line_cost" in lines.columns else 0
+            made = int(recipe.get("bars_made") or 1)
+            cost_per_item = total_cost / made if made else 0
+            retail_now = float(recipe.get("retail_price") or 0)
+            profit_per_item = retail_now - cost_per_item
+            margin = (profit_per_item / retail_now * 100) if retail_now else 0
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Batch Cost", f"${total_cost:.2f}")
+            m2.metric("Cost Per Item", f"${cost_per_item:.2f}")
+            m3.metric("Profit Per Item", f"${profit_per_item:.2f}")
+            m4.metric("Margin", f"{margin:.1f}%")
+
+            st.markdown("### Ingredients / Inventory Lines")
+            st.caption("Add ingredients from inventory, then edit or remove existing recipe lines below.")
+
+            if inv.empty:
+                st.warning("Add inventory items first before building recipe ingredient lines.")
+            else:
+                with st.form(f"add_recipe_line_edit_{rid}", clear_on_submit=True):
+                    inv_sorted = inv.sort_values("item_name")
+                    item_choice = st.selectbox(
+                        "Inventory Item",
+                        inv_sorted["id"].astype(str) + " - " + inv_sorted["item_name"].astype(str)
+                    )
+                    c1, c2, c3 = st.columns([1, 1, 1.4])
+                    amount_used = c1.number_input("Amount Used", min_value=0.0, step=0.01)
+                    unit = c2.selectbox("Unit Used", ["oz", "g", "each"])
+                    include_on_label = c3.checkbox("Include on ingredient label", value=True)
+                    label_override = st.text_input("Label Name Override, optional")
+                    add_line = st.form_submit_button("Save Ingredient Line")
+
+                    if add_line:
+                        if amount_used <= 0:
+                            st.error("Amount used must be greater than zero.")
+                        else:
+                            inventory_id = int(item_choice.split(" - ")[0])
+                            insert_row("recipe_lines", {
+                                "recipe_id": rid,
+                                "inventory_id": inventory_id,
+                                "amount_used": amount_used,
+                                "unit": unit,
+                                "include_on_label": include_on_label,
+                                "label_name_override": label_override.strip()
+                            })
+                            st.success("Ingredient line added.")
+                            st.rerun()
+
+            st.markdown("#### Current Ingredient Lines")
+            lines = recipe_lines(rid)
+            if lines.empty:
+                st.info("No ingredients added to this recipe yet.")
+            else:
+                header = st.columns([2.2, 1.1, 0.9, 0.9, 1, 0.8, 0.8])
+                header[0].markdown("**Item**")
+                header[1].markdown("**Category**")
+                header[2].markdown("**Amount**")
+                header[3].markdown("**Unit**")
+                header[4].markdown("**Line Cost**")
+                header[5].markdown("**Edit**")
+                header[6].markdown("**Delete**")
+
+                for _, line in lines.iterrows():
+                    lid = int(line["id_line"]) if "id_line" in lines.columns else int(line["id"])
+                    cols = st.columns([2.2, 1.1, 0.9, 0.9, 1, 0.8, 0.8])
+                    cols[0].markdown(f"**{line.get('item_name') or ''}**")
+                    cols[1].write(line.get("category") or "")
+                    cols[2].write(float(line.get("amount_used") or 0))
+                    cols[3].write(line.get("unit_line") or line.get("unit") or "")
+                    cols[4].write(f"${float(line.get('line_cost') or 0):.2f}")
+
+                    if cols[5].button("Edit", key=f"edit_line_from_edit_{lid}"):
+                        st.session_state.selected_recipe_line_id = lid
+                        st.session_state.recipe_mode = "edit_line"
+                        st.rerun()
+
+                    if cols[6].button("Delete", key=f"delete_line_from_edit_{lid}"):
+                        st.session_state.selected_recipe_line_id = lid
+                        st.session_state.recipe_mode = "delete_line"
+                        st.rerun()
+
+                    st.markdown("<hr style='margin: 0.35rem 0; border: none; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
 
     elif st.session_state.recipe_mode == "delete_recipe":
         rid = st.session_state.selected_recipe_id
